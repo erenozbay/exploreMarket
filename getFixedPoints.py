@@ -1,3 +1,4 @@
+# this is for the tree model
 from itertools import product
 from mip import *
 import numpy as np
@@ -8,7 +9,7 @@ import time
 import statistics
 
 
-def succfailFixedPointPriors(n, beta, lambd, mu, objective):
+def succfailFixedPoint(n, beta, lambd, mu, objective):
     # print out the fixed point whenever you find it
     slacks, bounds = np.zeros((n, n)), np.zeros((n, n))
     # (0, 0) should be positive, hence the slacks for all states strictly better than (0, 0) should be zero
@@ -166,7 +167,7 @@ def succfailFixedPointPriors(n, beta, lambd, mu, objective):
     return keepsoln, finalobjval, changed_soln, both_solns
 
 
-# def succfailFixedPoint(n, beta, lambd, mu, objective):
+# def succfailFixedPoint(n, beta, lambd, mu, objective): # the above one was succfailFixedPointPriors
 #     # print out the fixed point whenever you find it
 #     slacks, bounds = np.zeros((n, n)), np.zeros((n, n))
 #     # (0, 0) should be positive, hence the slacks for all states strictly better than (0, 0) should be zero

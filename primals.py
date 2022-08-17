@@ -1,3 +1,4 @@
+# this is for the tree model
 from itertools import product
 from mip import *
 import numpy as np

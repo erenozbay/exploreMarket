@@ -1,3 +1,4 @@
+# this is for the tree model
 from itertools import product
 from mip import *
 from plotnine import *
@@ -13,14 +14,28 @@ from primals import *
 from getFixedPoints import *
 
 
-def succfailSim(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardprob, C, percent):  # , iii, jjj):
+def getRs(rewardMulti, state):
+    rewardMulti = rewardMulti / (max(rewardMulti) + min(rewardMulti))
+    rs = np.zeros((state, state))
+    rs[4][0] = rewardMulti[0]
+    rs[3][0], rs[3][1] = rewardMulti[1], rewardMulti[2]
+    rs[2][0], rs[2][1], rs[2][2] = rewardMulti[3], rewardMulti[4], rewardMulti[5]
+    rs[1][0], rs[1][1] = rewardMulti[6], rewardMulti[7]
+    rs[0][0] = rewardMulti[8]
+    rs[1][2], rs[1][3] = rewardMulti[9], rewardMulti[11]
+    rs[0][1], rs[0][2], rs[0][3], rs[0][4] = rewardMulti[10], rewardMulti[12], rewardMulti[13], rewardMulti[14]
+    return rs
+
+
+# considers the parameters in beta as the position, (success, failure), with some room for deviating those with iii, jjj
+def succfailSim(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardprob, C, percent, iii=0, jjj=0):
     counter_conv, total_reward, counterr = 0, 0, 0
     queue, track_assign, queue_mid = np.zeros((state, state)), np.zeros((state, state)), np.zeros((state, state))
     track_mass, track_queues, track_queues_cum = np.zeros((int(T / 10), int((state + 1) * state * 0.5) + 1)), \
                                                  np.zeros((int(T / 10), int((state + 1) * state * 0.5) + 1)), \
                                                  np.zeros((int(T / 10), int((state + 1) * state * 0.5) + 1))
-    last_queues = np.zeros((int(T * (1 - percent / 100)), int((state + 1) * state * 0.5) + 1))
-    pricesHere = np.zeros((state, state))
+    # last_queues = np.zeros((int(T * (1 - percent / 100)), int((state + 1) * state * 0.5) + 1))
+    # pricesHere = np.zeros((state, state))
     ####
 
     workerarrival = np.random.binomial(1, (np.ones(T) * workerarriveprob))  # vector of arrivals for workers
@@ -136,8 +151,8 @@ def succfailSim(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardprob
                     break
                 queue[pos_i][pos_j] -= 1
                 track_assign[pos_i][pos_j] += 1
-                # reward_param = np.random.beta(pos_i + iii + 1, pos_j + jjj + 1)
-                reward_param = np.random.beta(pos_i + 1, pos_j + 1)
+                # success = rewardprob[i][j]
+                reward_param = np.random.beta(pos_i + iii + 1, pos_j + jjj + 1)
                 reward = np.random.binomial(1, reward_param)
                 if t > T * percent / 100:
                     total_reward += reward
@@ -176,9 +191,10 @@ def succfailSim(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardprob
                 index += 1
             counter_conv += 1
     total_reward = total_reward / (T * (1 - percent / 100))
-    pricesHere = pricesHere / (T * (1 - percent / 100))
+    # pricesHere = pricesHere / (T * (1 - percent / 100))
     # print(track_queues[-1, :])
     return track_mass, total_reward, track_queues
+
 
 def simModulePriceDev(state, sims):
     keepRewards = np.zeros((sims, 6))
@@ -241,15 +257,16 @@ def simModulePriceDev(state, sims):
 
                 pricesFromSim = np.zeros((state, state))
                 for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
-                    name = 'State(' + str(i) + ',' + str(j) + ')'
+                    stateName = 'State(' + str(i) + ',' + str(j) + ')'
                     namep_just = 'Price(' + str(i) + ',' + str(j) + ')'
 
                     # local price #
-                    df_qsTree[namep_just] = df_qsTree.apply(lambda x: cC * (bigK - min(bigK, x[name])) / bigK, axis=1)
+                    df_qsTree[namep_just] = df_qsTree.apply(lambda x: cC * (bigK - min(bigK, x[stateName])) / bigK,
+                                                            axis=1)
 
                 for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
-                    name = 'Price(' + str(i) + ',' + str(j) + ')'
-                    mid = df_qsTree[name]
+                    stateName = 'Price(' + str(i) + ',' + str(j) + ')'
+                    mid = df_qsTree[stateName]
                     midd = mid[mid.columns[0]].values
                     pricesFromSim[i][j] = statistics.mean(midd[-int((timeHorz * (1 - percent / 100)) / 10):])
                 print(pricesFromSim)
@@ -272,7 +289,7 @@ def simModulePriceDev(state, sims):
 
 
 def simModule(state, sims):
-    ####simulation module####
+    # simulation module####
     keepRewards = np.zeros((sims, 3))
     index = 0
     for ss in range(sims):
@@ -331,6 +348,7 @@ def simModule(state, sims):
             index += 1
     print(keepRewards)
     np.savetxt("keepRewards.csv", keepRewards[0:index], delimiter=",")
+
 
 def simModuleDemandVarying(instance):
     state = 5
@@ -406,6 +424,7 @@ def simModulePriorsChange(state, sims):
     alphas = [(i + 1) / (1 * 10) for i in range(10)]
     keepResults = np.zeros((len(alphas), 3))
     simstart, simend = 0, 0
+    start = time.time()
     for ss in range(len(alphas)):
         jobarriveprob = 10 * alphas[ss]
         # jobarriveprob = wap / (1 - wsp) * alphas[ss]  # alphas[len(alphas) - ss - 1]
@@ -432,8 +451,8 @@ def simModulePriorsChange(state, sims):
             # if fixed point is doable, i.e., job constraint is fully utilized, go on to the fixed point
             if jobcon - jobarriveprob > -1e-8:
                 FP_objval = 0
-                FPTree, FP_objval, solnchange, both = succfailFixedPointPriors(state, wsp, wap,
-                                                                               jobarriveprob, objective)
+                FPTree, FP_objval, solnchange, both = succfailFixedPoint(state, wsp, wap,
+                                                                         jobarriveprob, objective)
                 print("and the optimal value is ", objval_opt, "\n and LME search found a new solution ", solnchange,
                       " times and in the first try ", both + 1, " LME objs give a solution")
                 if FP_objval > 0:
@@ -469,8 +488,7 @@ def simModulePriorsChange(state, sims):
         keepResults[ss][0] = statistics.mean(keepMid[:, 0])
         keepResults[ss][1] = statistics.mean(keepMid[:, 1])
         keepResults[ss][2] = statistics.mean(keepMid[:, 2])
-        midtime = time.time()
-        print("It has been ", midtime - start, " seconds so far, from the start that is")
+        print("It has been ", time.time() - start, " seconds so far, from the start that is")
         np.savetxt("EC-NewSims_keepResults_5priors.csv", keepResults, delimiter=",")
         print()
         print(keepResults)
