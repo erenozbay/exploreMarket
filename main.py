@@ -13,6 +13,7 @@ from duals import *
 from primals import *
 from getFixedPoints import *
 from simEnvironments import *
+from interventions import *
 
 pd.set_option('display.max_columns', None)
 
