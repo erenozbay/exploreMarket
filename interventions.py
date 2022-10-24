@@ -740,23 +740,23 @@ def policyMakerModule(state, objective):
         print("\nEnd subsidies\n")
 
 
-n = 4
-lambd = 0.05
-workerstayprob = 0.95
-mu = 1
-
-objVals = np.zeros((n, n))
-objVals[0][0] = 0.5
-objVals[0][1] = 0.4
-objVals[0][2] = 0.3
-objVals[0][3] = 0.2
-objVals[1][0] = 0.7
-objVals[1][1] = 0.6
-objVals[1][2] = 0.5
-objVals[2][0] = 0.8
-objVals[2][1] = 0.7
-objVals[3][0] = 0.9
-
-platformModule(n, objVals, 0.065, lambd, workerstayprob, mu)
+# n = 4
+# lambd = 0.05
+# workerstayprob = 0.95
+# mu = 1
+#
+# objVals = np.zeros((n, n))
+# objVals[0][0] = 0.5
+# objVals[0][1] = 0.4
+# objVals[0][2] = 0.3
+# objVals[0][3] = 0.2
+# objVals[1][0] = 0.7
+# objVals[1][1] = 0.6
+# objVals[1][2] = 0.5
+# objVals[2][0] = 0.8
+# objVals[2][1] = 0.7
+# objVals[3][0] = 0.9
+#
+# platformModule(n, objVals, 0.065, lambd, workerstayprob, mu)
 
 # policyMakerModule(n, objVals)
