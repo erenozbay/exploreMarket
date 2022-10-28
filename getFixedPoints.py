@@ -14,7 +14,7 @@ def succfailFixedPoint(n, beta, lambd, mu, objective):  # prints out the fixed p
             slacks[i][j] = 1
             bounds[i][j] = mu
     
-    print("calling the optimization model")
+    print("\ncalling the optimization model")
     
     # last argument 1 implies objective is maximize(a), last argument 0 implies objective is minimize(a)
     soln, feasibility = succfailOptFixedPointPriors(n, beta, lambd, mu, bounds, slacks, objective, 1)
@@ -25,11 +25,11 @@ def succfailFixedPoint(n, beta, lambd, mu, objective):  # prints out the fixed p
     both_solns = -1
     keepSoln = soln
     
-    if feasibility == OptimizationStatus.OPTIMAL:
+    if not feasibility:
         for (i, j) in ((i, j) for j in range(n) for i in range(n)):
             objectiveValue += objective[i][j] * soln[i][j]
             
-    if feasibility_alt == OptimizationStatus.OPTIMAL:
+    if not feasibility_alt:
         for (i, j) in ((i, j) for j in range(n) for i in range(n)):
             objectiveValue_alt += objective[i][j] * soln_alt[i][j]
             
@@ -85,14 +85,14 @@ def succfailFixedPoint(n, beta, lambd, mu, objective):  # prints out the fixed p
                         for jk in range(2):
                             soln, feasibility = succfailOptFixedPointPriors(n, beta, lambd, mu, bounds,
                                                                               slacks, objective, jk)
-                            if (feasibility == OptimizationStatus.OPTIMAL) & (firstTime == 0):
+                            if (not feasibility) & (firstTime == 0):
                                 keepSoln = soln
                                 for (i, j) in ((i, j) for j in range(n) for i in range(n)):
                                     objectiveValue += objective[i][j] * soln[i][j]
 
                                 finalObjVal = objectiveValue - finalObjVal
                                 firstTime = 1
-                            elif (feasibility == OptimizationStatus.OPTIMAL) & (firstTime == 1):
+                            elif (not feasibility) & (firstTime == 1):
                                 changed_soln += 1
                                 objectiveValue_alt = 0
                                 for (i, j) in ((i, j) for j in range(n) for i in range(n)):
@@ -111,14 +111,14 @@ def succfailFixedPoint(n, beta, lambd, mu, objective):  # prints out the fixed p
                 for jk in range(2):
                     soln, feasibility = succfailOptFixedPointPriors(n, beta, lambd, mu, bounds,
                                                                       slacks, objective, jk)
-                    if (feasibility == OptimizationStatus.OPTIMAL) & (firstTime == 0):
+                    if (not feasibility) & (firstTime == 0):
                         keepSoln = soln
                         for (i, j) in ((i, j) for j in range(n) for i in range(n)):
                             objectiveValue += objective[i][j] * soln[i][j]
 
                         finalObjVal = objectiveValue - finalObjVal
                         firstTime = 1
-                    elif (feasibility == OptimizationStatus.OPTIMAL) & (firstTime == 1):
+                    elif (not feasibility) & (firstTime == 1):
                         objectiveValue_alt = 0
                         changed_soln += 1
                         for (i, j) in ((i, j) for j in range(n) for i in range(n)):
@@ -134,5 +134,5 @@ def succfailFixedPoint(n, beta, lambd, mu, objective):  # prints out the fixed p
             slacks[i][j] = 1
             bounds[i][j] = mu
 
-    print("\n Final objval in fixed point is ", finalObjVal)
+    print("\nFinal objval in fixed point is", finalObjVal, "; changed solns", changed_soln)
     return keepSoln, finalObjVal, changed_soln, both_solns

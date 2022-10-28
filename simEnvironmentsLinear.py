@@ -7,6 +7,7 @@ import random
 from copy import deepcopy
 import time
 import statistics
+from pulp import *
 
 
 # simulation for the 1-dim feedback model
@@ -90,84 +91,107 @@ def feedbackSim(n_state, T, workerArriveProb, jobArriveProb, beta, rewards, tran
     return track_mass, tot_reward, track_queues
 
 
+def feedbackOptFixedPoint(n, lambd, mu, bounds, transitions, rewardMult, beta, slacks, whichobj):
+    m = LpProblem("p", LpMaximize)
+    x = LpVariable.dicts("x", (range(n)), lowBound=0)
+    y = LpVariable("y", 0)
+
+    if whichobj == 1:
+        m += lpSum([x[i] for i in range(n)])
+    elif whichobj == 0:
+        m += -y
+    else:
+        m += lpSum([x[i] * rewardMult[i] for i in range(n)])
+
+    for ii in range(len(slacks)):
+        j = slacks[ii]
+        if j == 0:
+            m += lambd + beta * transitions[0][0] * x[0] + beta * transitions[1][0] * x[1] - x[0] == 0
+        elif j == (n - 1):
+            m += beta * transitions[n - 2][n - 1] * x[n - 2] + \
+                 beta * transitions[n - 1][n - 1] * x[n - 1] - x[n - 1] == 0
+        else:
+            m += beta * transitions[j - 1][j] * x[j - 1] + \
+                 beta * transitions[j][j] * x[j] + beta * transitions[j + 1][j] * x[j + 1] - x[j] == 0
+
+    m += x[0] <= lambd + beta * transitions[0][0] * x[0] + beta * transitions[1][0] * x[1]
+    m += y >= lambd + beta * transitions[0][0] * x[0] + beta * transitions[1][0] * x[1] - x[0]
+    m += x[n - 1] <= beta * transitions[n - 2][n - 1] * x[n - 2] + beta * transitions[n - 1][n - 1] * x[n - 1]
+    m += y >= beta * transitions[n - 2][n - 1] * x[n - 2] + beta * transitions[n - 1][n - 1] * x[n - 1] - x[n - 1]
+    for j in range(n):
+        m += x[j] <= bounds[j]
+    for j in range(1, n - 1):
+        m += x[j] <= beta * transitions[j - 1][j] * x[j - 1] + \
+             beta * transitions[j][j] * x[j] + beta * transitions[j + 1][j] * x[j + 1]
+        m += y >= beta * transitions[j - 1][j] * x[j - 1] + \
+             beta * transitions[j][j] * x[j] + beta * transitions[j + 1][j] * x[j + 1] - x[j]
+
+    m += lpSum([x[j] for j in range(n)]) == mu
+    # m.writeLP("lp.txt")
+
+    res = not m.solve(PULP_CBC_CMD(msg=False)) == LpSolutionOptimal
+
+    soln_sub = np.zeros(n)
+    obj_ = 0
+    for i in range(n):
+        soln_sub[i] = value(x[i])
+        obj_ += soln_sub[i] * rewardMult[i]
+    return soln_sub, obj_, res
+
+
 # use fixed point alg
 def feedbackFixedPoint(n, lambd, mu, transition, rewardMult, beta):
-    def feedbackOptFixedPoint(n, lambd, mu, bounds, transitions, beta, slacks, whichobj):
-        m = Model()
-        x = [m.add_var(name='x({})'.format(i + 1), lb=0) for i in range(n)]
-        y = m.add_var(lb=0)
-        if whichobj == 1:
-            m.objective = maximize(xsum(x[i] for i in range(n)))
-        else:
-            m.objective = minimize(y)
-
-        if bounds.sum() >= mu:
-            length = len(slacks)
-            for ii in range(length - 1):
-                j = slacks[ii]
-                if j == 0:
-                    m += lambd + beta * transitions[0][1] * x[0] + beta * transitions[1][2] * x[1] - x[0] == 0
-                elif j == (n - 1):
-                    m += beta * transitions[n - 2][0] * x[n - 2] + \
-                         beta * (transitions[n - 1][0] + transitions[n - 1][1]) * x[n - 1] - x[n - 1] == 0
-                else:
-                    m += beta * transitions[j - 1][0] * x[j - 1] + \
-                         beta * transitions[j][1] * x[j] + beta * transitions[j + 1][2] * x[j + 1] - x[j] == 0
-
-        for j in range(n):
-            # m += y >= x[j]
-            m += x[j] <= bounds[j]
-            if j == 0:
-                m += x[0] <= lambd + beta * transitions[0][1] * x[0] + beta * transitions[1][2] * x[1]
-                m += y >= lambd + beta * transitions[0][1] * x[0] + beta * transitions[1][2] * x[1] - x[0]
-            elif j == (n - 1):
-                m += x[n - 1] <= beta * transitions[n - 2][0] * x[n - 2] + \
-                     beta * (transitions[n - 1][0] + transitions[n - 1][1]) * x[n - 1]
-                m += y >= beta * transitions[n - 2][0] * x[n - 2] + \
-                     beta * (transitions[n - 1][0] + transitions[n - 1][1]) * x[n - 1] - x[n - 1]
-            else:
-                m += x[j] <= beta * transitions[j - 1][0] * x[j - 1] + \
-                     beta * transitions[j][1] * x[j] + beta * transitions[j + 1][2] * x[j + 1]
-                m += y >= beta * transitions[j - 1][0] * x[j - 1] + \
-                     beta * transitions[j][1] * x[j] + beta * transitions[j + 1][2] * x[j + 1] - x[j]
-
-        m += xsum(x[j] for j in range(n)) == mu
-        m.optimize()
-        soln_sub = np.zeros(n)
-        for i in range(n):
-            soln_sub[i] = x[i].x
-        return soln_sub, m.optimize()
-
     # I need x_0 positive, so I can move things faster if I initially start with a setting where x_0 > 0 the first time
     rewardMult_sortedIndices = np.argsort(rewardMult)[::-1]
     # start with making everybody before, and including, 0 positive
     position_0 = np.where(rewardMult_sortedIndices == 0)[0][0]
     check_feasible = True
     include_until = position_0 + 1
-    while check_feasible & (include_until < n + 1):  # solve for the variables until and including position_0
+    soln, soln_b = 0, 0
+    while check_feasible & (include_until <= n + 1):  # solve for the variables until and including position_0
         ubs = np.zeros(n)
-        force_slacks = rewardMult_sortedIndices[0:include_until]
-        for i in range(include_until):  # give upper bounds of one for the states I want to include
+        force_slacks = rewardMult_sortedIndices[0:(include_until - 1)]
+        for i in range(min(include_until, n)):  # give upper bounds of one for the states I want to include
             ubs[rewardMult_sortedIndices[i]] = mu
-        soln, feasibility = feedbackOptFixedPoint(n, lambd, mu, ubs, transition, beta, force_slacks, 1)
-        # soln_b, feasibility_b = feedbackOptFixedPoint(n, lambd, mu, ubs, transition, beta, force_slacks, 0)
-        print(feasibility)
-        check_feasible = feasibility == OptimizationStatus.INFEASIBLE
-        if ~check_feasible:
+        print(ubs)
+        print(force_slacks)
+        soln, obj, res = feedbackOptFixedPoint(n, lambd, mu, ubs, transition, rewardMult, beta, force_slacks, 1)
+        soln_b, obj_b, res_b = feedbackOptFixedPoint(n, lambd, mu, ubs, transition, rewardMult, beta, force_slacks, 0)
+        soln_c, obj_c, res_c = feedbackOptFixedPoint(n, lambd, mu, ubs, transition, rewardMult, beta, force_slacks, -1)
+        if not res:
+            print("Maximize sums of masses", obj, end="; ")
             print(soln)
-        # if feasibility_b != OptimizationStatus.INFEASIBLE:
-        #     print(soln_b)
+        else:
+            print("Maximize sums of masses infeasible")
+        print()
+        if not res_b:
+            print("Minimize the slacks", obj_b, end="; ")
+            print(soln_b)
+        else:
+            print("Minimize the slacks infeasible")
+        print()
+        if not res_c:
+            print("Maximize the reward", obj_c, end="; ")
+            print(soln_c)
+        else:
+            print("Maximize the reward infeasible")
+        print()
         include_until += 1
 
     return soln
 
 
 # direct dual of the feedback model
-def feedbackDual(n, lambd, mu, transitions, rewardMult, beta):
-    m = Model()
-    g = [m.add_var(name='gamma({})'.format(i + 1), lb=0) for i in range(n)]
-    alpha = m.add_var(name='cap', lb=0)
-    m.objective = minimize(g[0] * lambd + alpha * mu)
+def feedbackDual(n, lambd, mu, transitions, rewardMult, beta):  # DUAL NEEDS TO BE FIXED HERE
+    m = LpProblem("p", LpMinimize)
+    g = LpVariable.dicts("gamma", (range(n)), lowBound=0)
+    alpha = LpVariable("alpha", 0)
+    m += lpSum(g[0] * lambd + alpha * mu)
+
+    # m = Model()
+    # g = [m.add_var(name='gamma({})'.format(i + 1), lb=0) for i in range(n)]
+    # alpha = m.add_var(name='cap', lb=0)
+    # m.objective = minimize(g[0] * lambd + alpha * mu)
 
     for j in range(n):
         if j == 0:
@@ -179,100 +203,94 @@ def feedbackDual(n, lambd, mu, transitions, rewardMult, beta):
             m += alpha >= g[j - 1] * (beta * transitions[j][2]) + g[j + 1] * (beta * transitions[j][0]) + \
                  g[j] * (beta * transitions[j][1] - 1) + rewardMult[j]
 
-    m.optimize()
-    print('Objective value is ', m.objective_value)
+    # m.optimize()
+    m.solve(PULP_CBC_CMD(msg=False))
+
+    print('Objective value is ', value(g[0]) * lambd + value(alpha) * mu)
     for i in range(n):
-        print(g[i].x, end=", ")
+        print(value(g[i]), end=", ")
     print()
-    print(alpha.x)
+    print(value(alpha))
     print()
     soln = np.zeros(n)
     for i in range(n):
-        soln[i] = g[i].x
+        soln[i] = value(g[i])
     return soln
 
 
 # dual of the feedback model using a fixed point
 def feedbackDualUseFixedPoint(n, lambd, mu, transitions, rewardMult, beta, x):
     rhs = np.zeros(n)
-    for j in range(n):
-        if j == 0:
-            rhs[0] = lambd + beta * transitions[0][1] * x[0] + beta * transitions[1][2] * x[1]
-        elif j == n - 1:
-            rhs[n - 1] = beta * transitions[n - 2][0] * x[n - 2] + \
-                         beta * (transitions[n - 1][0] + transitions[n - 1][1]) * x[n - 1]
-        else:
-            rhs[j] = beta * transitions[j - 1][0] * x[j - 1] + beta * transitions[j][1] * x[j] + \
-                     beta * transitions[j + 1][2] * x[j + 1]
-    m = Model()
-    g = [m.add_var(name='gamma({})'.format(i + 1), lb=0) for i in range(n)]
-    alpha = m.add_var(lb=0)
-    m.objective = minimize(xsum(rhs[i] * g[i] for i in range(n)) + alpha * mu)
+    rhs[0] = lambd + beta * transitions[0][0] * x[0] + beta * transitions[1][0] * x[1]
+    rhs[n - 1] = beta * transitions[n - 2][n - 1] * x[n - 2] + beta * transitions[n - 1][n - 1] * x[n - 1]
+    for j in range(1, n - 1):
+        rhs[j] = beta * transitions[j - 1][j] * x[j - 1] + beta * transitions[j][j] * x[j] + \
+                 beta * transitions[j + 1][j - 1] * x[j + 1]
+
+    m = LpProblem("p", LpMinimize)
+    g = LpVariable.dicts("gamma", (range(n)), lowBound=0)
+    alpha = LpVariable("alpha", 0)
+    m += lpSum([g[i] * rhs[i] for i in range(n)] + alpha * mu)
 
     for j in range(n):
         m += g[j] + alpha >= rewardMult[j]
 
-    m.optimize()
-    print('Objective value is ', m.objective_value)
+    m.solve(PULP_CBC_CMD(msg=False))
     soln = np.zeros(n)
-    # print()
-    # print(alpha.x)
+    obj = 0
     for i in range(n):
-        soln[i] = g[i].x
+        soln[i] = value(g[i])
+        obj += value(g[i]) * rhs[i]
+    obj += value(alpha) * mu
+    print('Objective value is ', obj)
     return soln
 
 
 # lp of the feedback model
 def feedbackOpt(n, lambd, mu, prevSoln, usePrevSoln, transitions, rewardMult, beta):
-    m = Model()
-    x = [m.add_var(name='x({})'.format(i + 1), lb=0) for i in range(n)]
-    m.objective = maximize(xsum(rewardMult[i] * x[i] for i in range(n)))
+    m = LpProblem("p", LpMaximize)
+    x = LpVariable.dicts("x", (range(n)), lowBound=0)
+    m += lpSum([x[i] * rewardMult[i] for i in range(n)])
 
     if ~usePrevSoln:
-        for j in range(n):
-            if j == 0:
-                m += x[0] <= lambd + beta * transitions[0][1] * x[0] + beta * transitions[1][2] * x[1]
-            elif j == (n - 1):
-                m += x[n - 1] <= beta * transitions[n - 2][0] * x[n - 2] + \
-                     beta * (transitions[n - 1][0] + transitions[n - 1][1]) * x[n - 1]
-            else:
-                m += x[j] <= beta * transitions[j - 1][0] * x[j - 1] + \
-                     beta * transitions[j][1] * x[j] + beta * transitions[j + 1][2] * x[j + 1]
+        m += x[0] <= lambd + beta * transitions[0][0] * x[0] + beta * transitions[1][0] * x[1]
+        m += x[n - 1] <= beta * transitions[n - 2][n - 1] * x[n - 2] + beta * transitions[n - 1][n - 1] * x[n - 1]
+        for j in range(1, n-1):
+                m += x[j] <= beta * transitions[j - 1][j] * x[j - 1] + \
+                     beta * transitions[j][j] * x[j] + beta * transitions[j + 1][j] * x[j + 1]
     else:
-        for j in range(n):
-            if j == 0:
-                m += x[0] <= lambd + beta * transitions[0][1] * prevSoln[0] + beta * transitions[1][2] * prevSoln[1]
-            elif j == (n - 1):
-                m += x[n - 1] <= beta * transitions[n - 2][0] * prevSoln[n - 2] + \
-                     beta * (transitions[n - 1][0] + transitions[n - 1][1]) * prevSoln[n - 1]
-            else:
-                m += x[j] <= beta * transitions[j - 1][0] * prevSoln[j - 1] + \
-                     beta * transitions[j][1] * prevSoln[j] + beta * transitions[j + 1][2] * prevSoln[j + 1]
+        m += x[0] <= lambd + beta * transitions[0][0] * prevSoln[0] + beta * transitions[1][0] * prevSoln[1]
+        m += x[n - 1] <= beta * transitions[n - 2][n - 1] * prevSoln[n - 2] + \
+             beta * transitions[n - 1][n - 1] * prevSoln[n - 1]
+        for j in range(1, n - 1):
+            m += x[j] <= beta * transitions[j - 1][j] * prevSoln[j - 1] + beta * transitions[j][j] * prevSoln[j] + \
+                 beta * transitions[j + 1][j] * prevSoln[j + 1]
 
-    m += xsum(x[j] for j in range(n)) <= mu
-    m.optimize()
-    slacks = np.zeros(n)
-    for j in range(n):
-        if j == 0:
-            slacks[j] = lambd + beta * transitions[0][1] * x[0].x + beta * transitions[1][2] * x[1].x - x[0].x
-        elif j == (n - 1):
-            slacks[j] = beta * transitions[n - 2][0] * x[n - 2].x + \
-                        beta * (transitions[n - 1][0] + transitions[n - 1][1]) * x[n - 1].x - x[n - 1].x
-        else:
-            slacks[j] = beta * transitions[j - 1][0] * x[j - 1].x + \
-                        beta * transitions[j][1] * x[j].x + beta * transitions[j + 1][2] * x[j + 1].x - x[j].x
-    print('Objective value is ', m.objective_value)
-    for i in range(n):
-        print("State ", i, " has ", x[i].x, " with slack ", slacks[i])
-    print("using capacity ", xsum(x[i].x for i in range(n)))
-    print()
-    soln = np.zeros(n)
+    m += lpSum([x[j] for j in range(n)]) <= mu
+
+    m.solve(PULP_CBC_CMD(msg=False))
+    soln_sub = np.zeros(n)
+    obj_ = 0
     capacity = 0
-    for i in range(n):
-        soln[i] = x[i].x
-        capacity += x[i].x
 
-    return soln, m.objective_value, capacity
+    slacks = np.zeros(n)
+    slacks[0] = lambd + beta * transitions[0][0] * value(x[0]) + beta * transitions[1][0] * value(x[1]) - value(x[0])
+    slacks[n - 1] = beta * transitions[n - 2][n - 1] * value(x[n - 2]) + \
+                    beta * transitions[n - 1][n - 1] * value(x[n - 1]) - value(x[n - 1])
+    for j in range(1, n - 1):
+        slacks[j] = beta * transitions[j - 1][j] * value(x[j - 1]) + beta * transitions[j][j] * value(x[j]) + \
+                    beta * transitions[j + 1][j] * value(x[j + 1]) - value(x[j])
+
+    for i in range(n):
+        soln_sub[i] = value(x[i])
+        obj_ += soln_sub[i] * rewardMult[i]
+    print("Objective is ", obj_)
+    for i in range(n):
+        print("State ", i, " has ", value(x[i]), " with slack ", slacks[i])
+        capacity += value(x[i])
+    print("Using capacity ", capacity)
+
+    return soln_sub, obj_, capacity
 
 
 def simModule(state, numsim):

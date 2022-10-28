@@ -1,15 +1,22 @@
 from itertools import product
 from mip import *
 import numpy as np
+from pulp import *
 
 
 # direct dual of the tree model
 def succfailDual(n, beta, lambd, mu, objective):
-    m = Model()
-    g = [[m.add_var(name='gamma({},{})'.format(j + 1, i + 1), lb=0)
-          for i in range(n)] for j in range(n)]
-    alpha = m.add_var(lb=0)
-    m.objective = minimize(lambd * g[0][0] + alpha * mu)
+    m = LpProblem("p", LpMinimize)
+    g = LpVariable.dicts("gamma", (range(n), range(n)), lowBound=0)
+    alpha = LpVariable("alpha", 0)
+    m += lpSum(g[0][0] * lambd + alpha * mu)
+
+
+    # m = Model()
+    # g = [[m.add_var(name='gamma({},{})'.format(j + 1, i + 1), lb=0)
+    #       for i in range(n)] for j in range(n)]
+    # alpha = m.add_var(lb=0)
+    # m.objective = minimize(lambd * g[0][0] + alpha * mu)
 
     for (j, i) in product(range(n), range(n)):
         if i + j < n - 1:
@@ -18,14 +25,15 @@ def succfailDual(n, beta, lambd, mu, objective):
         else:
             m += alpha >= g[j][i] * (beta - 1) + objective[j][i]
 
-    m.optimize()
+    # m.optimize()
+    m.solve(PULP_CBC_CMD(msg=False))
 
-    print('Objective value is ', m.objective_value)
     soln = np.zeros((n, n))
-    print("alpha " + str(alpha.x) + "; and the solution")
+    print("alpha " + str(value(alpha)) + "; and the solution")
     for (i, j) in product(range(n), range(n)):
-        soln[i][j] = g[i][j].x
+        soln[i][j] = value(g[i][j])
     print(soln)
+    print('Objective value is ', value(g[0][0]) * lambd + value(alpha) * mu)
     return soln
 
 

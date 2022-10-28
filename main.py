@@ -19,7 +19,40 @@ from simEnvironmentsLinear import *
 pd.set_option('display.max_columns', None)
 
 if __name__ == '__main__':
-    main()  # from simEnvironmentsLinear
+    # feedback
+    # beta = 0.5
+    # mu_ = 1.5
+    # lambda_ = 1.5
+    # obj = np.array([0.11, 0.1, 1])
+    # transitions = np.array([[0, 1, 0],
+    #                         [0, 0, 1],
+    #                         [0, 0, 1]])  # transition is in rows, first column first row: going from 0 to 0
+    # second column first row: going from 0 to 1
+    # third column first row: going from 0 to 2
+
+    # soln_sub, obj_, capacity = feedbackOpt(n=len(obj), lambd=lambda_, mu=mu_, prevSoln=np.empty(0), usePrevSoln=False,
+    #                                        transitions=transitions, rewardMult=obj, beta=beta)
+    # print()
+    # feedbackFixedPoint(n=len(obj), lambd=lambda_, mu=min(mu_, capacity), transition=transitions, rewardMult=obj,
+    #                    beta=beta)
+
+    # tree
+    beta = 0.95
+    mu_ = 0.5
+    lambda_ = 0.1
+
+    obj = np.zeros((3, 3))
+    obj[0][0] = 0.5
+    obj[0][1] = 0.4
+    obj[0][2] = 0.3
+    obj[1][0] = 0.7
+    obj[1][1] = 0.6
+    obj[2][0] = 0.8
+
+    newSoln, objVal, mass, res = succfailOpt(n=len(obj), beta=beta, lambd=lambda_, mu=mu_,
+                                             prevSoln=np.empty(0), usePrevSoln=False, objective=obj)
+    succfailFixedPoint(n=len(obj), beta=beta, lambd=lambda_, mu=min(mu_, mass), objective=obj)
+
     raise SystemExit(0)
 
     numState = 3
