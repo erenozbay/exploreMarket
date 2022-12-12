@@ -1,19 +1,10 @@
 # this is for the tree model
 # from itertools import product
 # from mip import *
-from plotnine import *
-import numpy as np
-import pandas as pd
-import random
-from copy import deepcopy
-import time
 # import warnings
-import statistics
-from duals import *
-from primals import *
-from getFixedPoints import *
+from sys import exit
+
 from simEnvironments import *
-from interventions import *
 from simEnvironmentsLinear import *
 
 pd.set_option('display.max_columns', None)
@@ -37,22 +28,56 @@ if __name__ == '__main__':
     #                    beta=beta)
 
     # tree
+    state = 4
     beta = 0.95
-    mu_ = 0.5
-    lambda_ = 0.1
+    mu_ = 0.72  # 0.74  # 1.05
+    lambda_ = 0.1  # 0.012 gives LME obj 0.10813, 0.015 gives LME obj 0.10644047581
 
-    obj = np.zeros((3, 3))
-    obj[0][0] = 0.5
-    obj[0][1] = 0.4
-    obj[0][2] = 0.3
+    obj = np.zeros((state, state))
+    obj[0][0] = 0.5  # + .101
+    obj[0][1] = 0.4  # 0.35
+    obj[0][2] = 0.3  # 0.87233
     obj[1][0] = 0.7
-    obj[1][1] = 0.6
+    obj[1][1] = 0.6  # - 0.101  # platform decides to charge a fixed transaction fee?
+    # To discourage matches (instead of encouraging lower reward states by giving out incentives)
+    # this discouragement pushes OPT to be an LME, w/o any change in the objective value(?)
     obj[2][0] = 0.8
 
-    newSoln, objVal, mass, res = succfailOpt(n=len(obj), beta=beta, lambd=lambda_, mu=mu_,
-                                             prevSoln=np.empty(0), usePrevSoln=False, objective=obj)
-    succfailFixedPoint(n=len(obj), beta=beta, lambd=lambda_, mu=min(mu_, mass), objective=obj)
+    if state == 4:
+        obj[0][0] = 0.5
+        obj[0][1] = 0.4
+        obj[0][2] = 0.3
+        obj[0][3] = 0.2
+        obj[1][0] = 0.7
+        obj[1][1] = 0.6
+        obj[1][2] = 0.25
+        obj[2][0] = 0.8
+        obj[2][1] = 0.45
+        obj[3][0] = 0.9
 
+    transition = {}
+    for (i, j) in ((i, j) for (i, j) in product(range(len(obj)), range(len(obj))) if i + j < (len(obj) - 1)):
+        transition[str(i) + str(j)] = {}
+        transition[str(i) + str(j)]['s'] = (i + 1) / (i + j + 2)  # success
+        transition[str(i) + str(j)]['f'] = 1 - transition[str(i) + str(j)]['s']  # failure
+        transition[str(i) + str(j)]['r'] = 0  # remain
+        print(i, j, "", transition[str(i) + str(j)].values())
+        if sum(transition[str(i) + str(j)].values()) != 1:
+            exit("problem in (" + str(i) + ", " + str(j) + ")")
+    # transition[str(1) + str(0)]['s'] = 1/30  # success
+    # transition[str(1) + str(0)]['f'] = 29/30
+    slacks = np.ones((state, state)) * max(mu_, lambda_ / (1 - beta))
+    # for (i, j) in product(range(len(obj)), range(len(obj))):
+    #     slacks[i][j] = 0 if obj[0][0] < obj[i][j] else mu_
+    print("slacks\n", slacks, "\n", "-" * 20)
+    newSoln, res, objVal, mass = succfailOpt(n=len(obj), beta=beta, lambd=lambda_, mu=mu_,
+                                             prevSoln=np.empty(0), usePrevSoln=False,
+                                             objective=obj, tr=transition, slacks=slacks)
+    _, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta, lambd=lambda_,
+                                             mu=min(mu_, mass), objective=obj, tr=transition)
+    print("Diff in opt vs lme ", objVal - objVal_LME)
+    print("\nOpt solution")
+    print(newSoln)
     raise SystemExit(0)
 
     numState = 3

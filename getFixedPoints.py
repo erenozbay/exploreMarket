@@ -1,7 +1,7 @@
 from primals import *
 
 
-def succfailFixedPoint(n, beta, lambd, mu, objective):  # prints out the fixed point whenever it finds it
+def succfailFixedPoint(n, beta, lambd, mu, objective, tr):  # prints out the fixed point whenever it finds it
     # (0, 0) should be positive, hence the slacks for all states strictly better than (0, 0) should be zero
     slacks, bounds = np.zeros((n, n)), np.zeros((n, n))
     bounds[0][0] = mu
@@ -17,14 +17,21 @@ def succfailFixedPoint(n, beta, lambd, mu, objective):  # prints out the fixed p
     print("\ncalling the optimization model")
     
     # last argument 1 implies objective is maximize(a), last argument 0 implies objective is minimize(a)
-    soln, feasibility = succfailOptFixedPointPriors(n, beta, lambd, mu, bounds, slacks, objective, 1)
-    soln_alt, feasibility_alt = succfailOptFixedPointPriors(n, beta, lambd, mu, bounds, slacks, objective, 0)
+    soln, feasibility, slacksSoln = succfailOpt(n, beta, lambd, mu, prevSoln=np.ones(1), usePrevSoln=False,
+                                                objective=objective, tr=tr, slacks=slacks, bounds=bounds, whichobj=1)
+    # succfailOptFixedPointPriors(n, beta, lambd, mu, bounds, slacks, objective, 1)
+    soln_alt, feasibility_alt, slacksSoln = succfailOpt(n, beta, lambd, mu, prevSoln=np.ones(1), usePrevSoln=False,
+                                                        objective=objective, tr=tr, slacks=slacks,
+                                                        bounds=bounds, whichobj=0)
+    # succfailOptFixedPointPriors(n, beta, lambd, mu, bounds, slacks, objective, 0)
     objectiveValue, objectiveValue_alt = 0, 0
     finalObjVal = 0
     changed_soln = 0
     both_solns = -1
     keepSoln = soln
-    
+    keepSlacks = slacksSoln
+    if feasibility and feasibility_alt:
+        print("Both initial problems are infeasible.\n")
     if not feasibility:
         for (i, j) in ((i, j) for j in range(n) for i in range(n)):
             objectiveValue += objective[i][j] * soln[i][j]
@@ -36,20 +43,23 @@ def succfailFixedPoint(n, beta, lambd, mu, objective):  # prints out the fixed p
     if (objectiveValue > 0) & (objectiveValue_alt > 0):
         keepSoln = soln if objectiveValue_alt > objectiveValue else soln_alt
         print(keepSoln)
+        print(slacksSoln)
         both_solns = 1
-        finalObjVal = min(objectiveValue, objectiveValue_alt) - finalObjVal
+        finalObjVal = min(objectiveValue, objectiveValue_alt)
         if abs(objectiveValue - objectiveValue_alt) > 1e-6:
             changed_soln += 1
     elif objectiveValue > 0:
         both_solns = 0
         keepSoln = soln
         print(keepSoln)
-        finalObjVal = objectiveValue - finalObjVal
+        print(slacksSoln)
+        finalObjVal = objectiveValue
     elif objectiveValue_alt > 0:
         both_solns = 0
         keepSoln = soln_alt
         print(keepSoln)
-        finalObjVal = objectiveValue_alt - finalObjVal
+        print(slacksSoln)
+        finalObjVal = objectiveValue_alt
 
     success_prob = objective[0][0]  # the success probability of (0, 0)
     counter = 0
@@ -81,51 +91,50 @@ def succfailFixedPoint(n, beta, lambd, mu, objective):  # prints out the fixed p
                                 bounds[ii][jj] = 0
                                 
                         objectiveValue = 0
-                        firstTime = 0
+                        # firstTime = 0
                         for jk in range(2):
-                            soln, feasibility = succfailOptFixedPointPriors(n, beta, lambd, mu, bounds,
-                                                                              slacks, objective, jk)
-                            if (not feasibility) & (firstTime == 0):
-                                keepSoln = soln
+                            soln, feasibility, slacksSoln = succfailOpt(n, beta, lambd, mu, prevSoln=np.ones(1),
+                                                                        usePrevSoln=False, objective=objective, tr=tr,
+                                                                        slacks=slacks, bounds=bounds, whichobj=jk)
+                            # succfailOptFixedPointPriors(n, beta, lambd, mu, bounds, slacks, objective, jk)
+                            if not feasibility:
                                 for (i, j) in ((i, j) for j in range(n) for i in range(n)):
                                     objectiveValue += objective[i][j] * soln[i][j]
-
-                                finalObjVal = objectiveValue - finalObjVal
-                                firstTime = 1
-                            elif (not feasibility) & (firstTime == 1):
-                                changed_soln += 1
-                                objectiveValue_alt = 0
-                                for (i, j) in ((i, j) for j in range(n) for i in range(n)):
-                                    objectiveValue_alt += objective[i][j] * soln[i][j]
-                                if objectiveValue_alt < objectiveValue:
-                                    finalObjVal = objectiveValue_alt - finalObjVal
+                                if np.sum(np.abs(keepSoln - soln)) > 1e-8 and (objectiveValue >= finalObjVal):
+                                    if finalObjVal > 0:
+                                        changed_soln += 1
+                                        print("changed solution.")
                                     keepSoln = soln
-
+                                    keepSlacks = slacksSoln
+                                    finalObjVal = objectiveValue
+                                    print(keepSoln)
+                                    print(keepSlacks, "\n")
+                            objectiveValue = 0
             else:  # just a single state slack update
                 ii = int(possible_indices[ind][0])
                 jj = int(possible_indices[ind][1])
                 bounds[ii][jj] = mu
 
                 objectiveValue = 0
-                firstTime = 0
+                # firstTime = 0
                 for jk in range(2):
-                    soln, feasibility = succfailOptFixedPointPriors(n, beta, lambd, mu, bounds,
-                                                                      slacks, objective, jk)
-                    if (not feasibility) & (firstTime == 0):
-                        keepSoln = soln
+                    soln, feasibility, slacksSoln = succfailOpt(n, beta, lambd, mu, prevSoln=np.ones(1),
+                                                                        usePrevSoln=False, objective=objective, tr=tr,
+                                                                        slacks=slacks, bounds=bounds, whichobj=jk)
+                            # succfailOptFixedPointPriors(n, beta, lambd, mu, bounds, slacks, objective, jk)
+                    if not feasibility:
                         for (i, j) in ((i, j) for j in range(n) for i in range(n)):
                             objectiveValue += objective[i][j] * soln[i][j]
-
-                        finalObjVal = objectiveValue - finalObjVal
-                        firstTime = 1
-                    elif (not feasibility) & (firstTime == 1):
-                        objectiveValue_alt = 0
-                        changed_soln += 1
-                        for (i, j) in ((i, j) for j in range(n) for i in range(n)):
-                            objectiveValue_alt += objective[i][j] * soln[i][j]
-                        if objectiveValue_alt < objectiveValue:
-                            finalObjVal = objectiveValue_alt - finalObjVal
+                        if np.sum(np.abs(keepSoln - soln)) > 1e-8 and (objectiveValue >= finalObjVal):
+                            if finalObjVal > 0:
+                                changed_soln += 1
+                                print("changed solution.")
                             keepSoln = soln
+                            keepSlacks = slacksSoln
+                            finalObjVal = objectiveValue
+                            print(keepSoln)
+                            print(keepSlacks, "\n")
+                    objectiveValue = 0
 
         success_prob = nextSuccessProb
         # before moving on to the next success_prob, I need to fix the slacks and bounds for all those with higher probs
@@ -135,4 +144,6 @@ def succfailFixedPoint(n, beta, lambd, mu, objective):  # prints out the fixed p
             bounds[i][j] = mu
 
     print("\nFinal objval in fixed point is", finalObjVal, "; changed solns", changed_soln)
+    print(keepSoln)
+    print(keepSlacks)
     return keepSoln, finalObjVal, changed_soln, both_solns

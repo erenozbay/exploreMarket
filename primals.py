@@ -4,87 +4,81 @@ import numpy as np
 from pulp import *
 
 
-def succfailOpt(n, beta, lambd, mu, prevSoln, usePrevSoln, objective):
+# bounds and slacks will be matrices, in the slacks matrix, the indices with 1 will be forced to have zero slacks
+def succfailOpt(n, beta, lambd, mu, prevSoln, usePrevSoln, objective, tr, slacks,
+                bounds=np.ones(1), whichobj='OPT'):  # whichobj argument, if in {-1, 0, 1}, chooses the fixed point obj
     m = LpProblem("p", LpMaximize)
     x = LpVariable.dicts("x", (range(n), range(n)), lowBound=0)
     ys = LpVariable.dicts("ys", (range(n), range(n)), lowBound=0)
+    y = LpVariable("y")
 
-    m += lpSum([objective[j][i] * x[j][i] for (j, i) in product(range(n), range(n)) if j + i <= n - 1])
-
-    # m = Model()
-    # x = [[m.add_var(name='x({},{})'.format(j + 1, i + 1), lb=0)
-    #       for i in range(n)] for j in range(n)]
-    # ys = [[m.add_var(name='slack({},{})'.format(j + 1, i + 1), lb=0)
-    #        for i in range(n)] for j in range(n)]
-    # m.objective = maximize(xsum(objective[j][i] * x[j][i]
-    #                             for j in range(n) for i in range(n) if j + i <= n - 1))
+    if whichobj != 'OPT':
+        if whichobj == 1:
+            m += y
+        elif whichobj == -1:
+            m += -y
+            m += y >= 0
+        elif whichobj == 0:
+            m += lpSum([-objective[j][i] * x[j][i] for j in range(n) for i in range(n) if j + i <= n - 1])
+    else:
+        m += lpSum([objective[j][i] * x[j][i] for j in range(n) for i in range(n) if j + i <= n - 1])
 
     if usePrevSoln:
         val = 0
         for (j, i) in product(range(n), range(n)):
-            if (i > 0) & (j > 0) & (j + i <= n - 1):
-                if j + i == n - 1:
-                    m += x[j][i] - beta * (j / (i + j + 1)) * prevSoln[j - 1][i] - \
-                         beta * (i / (i + j + 1)) * prevSoln[j][i - 1] - beta * prevSoln[j][i] <= 0
-                else:
-                    m += x[j][i] - beta * (j / (i + j + 1)) * prevSoln[j - 1][i] - \
-                         beta * (i / (i + j + 1)) * prevSoln[j][i - 1] <= 0
-            elif (i == 0) & (j != 0) & (j + i <= n - 1):
-                if j + i == n - 1:
-                    m += x[j][i] - beta * (j / (i + j + 1)) * prevSoln[j - 1][i] - beta * prevSoln[j][i] <= 0
-                else:
-                    m += x[j][i] - beta * (j / (i + j + 1)) * prevSoln[j - 1][i] <= 0
-            elif (i != 0) & (j == 0) & (j + i <= n - 1):
-                if j + i == n - 1:
-                    m += x[j][i] - beta * (i / (i + j + 1)) * prevSoln[j][i - 1] - beta * prevSoln[j][i] <= 0
-                else:
-                    m += x[j][i] - beta * (i / (i + j + 1)) * prevSoln[j][i - 1] <= 0
+            ind = j + i == n - 1  # if at leaf node
+            s = tr[str(j - 1) + str(i)]['s'] if j > 0 else 0  # success to state (j, i)
+            f = tr[str(j) + str(i - 1)]['f'] if i > 0 else 0  # failure to state (j, i)
+            r = 1 - tr[str(j) + str(i)]['r'] if i + j < n - 1 else 1  # remain
+            # in form (1 - prob) to shorten the constraint variable
+            if (i > 0) & (j > 0):
+                m += x[j][i] * r - beta * s * prevSoln[j - 1][i] - beta * f * prevSoln[j][i - 1] - \
+                     beta * prevSoln[j][i] * ind <= 0
+                m += x[j][i] * r - beta * s * prevSoln[j - 1][i] - beta * f * prevSoln[j][i - 1] - \
+                     beta * prevSoln[j][i] * ind == - ys[j][i]
+            elif (i == 0) & (j != 0):
+                m += x[j][i] * r - beta * s * prevSoln[j - 1][i] - beta * prevSoln[j][i] * ind <= 0
+                m += x[j][i] * r - beta * s * prevSoln[j - 1][i] - beta * prevSoln[j][i] * ind == - ys[j][i]
+            elif (i != 0) & (j == 0):
+                m += x[j][i] * r - beta * f * prevSoln[j][i - 1] - beta * prevSoln[j][i] * ind <= 0
+                m += x[j][i] * r - beta * f * prevSoln[j][i - 1] - beta * prevSoln[j][i] * ind == - ys[j][i]
             val += objective[j][i] * prevSoln[j][i]
         # uncomment below if want to have a solution not worse than the previous solution
         # m += xsum(objective[j][i] * x[j][i] for j in range(n) for i in range(n) if j + i <= n - 1) >= val
     else:
-        for (j, i) in product(range(n), range(n)):
-            if (i > 0) & (j > 0) & (j + i <= n - 1):
-                if j + i == n - 1:
-                    m += x[j][i] - beta * (j / (i + j + 1)) * x[j - 1][i] - \
-                         beta * (i / (i + j + 1)) * x[j][i - 1] - beta * x[j][i] <= 0
-                    m += x[j][i] - beta * (j / (i + j + 1)) * x[j - 1][i] - \
-                         beta * (i / (i + j + 1)) * x[j][i - 1] - beta * x[j][i] == - ys[j][i]
-                else:
-                    m += x[j][i] - beta * (j / (i + j + 1)) * x[j - 1][i] - beta * (i / (i + j + 1)) * x[j][i - 1] <= 0
-                    m += x[j][i] - beta * (j / (i + j + 1)) * x[j - 1][i] - \
-                         beta * (i / (i + j + 1)) * x[j][i - 1] == - ys[j][i]
-                # slack constraints #
-                # m += x[j][i] - beta * (j / (i + j + 1)) * x[j - 1][i] - beta * (i / (i + j + 1)) * x[j][i - 1] \
-                #      - eps_slack <= ind[j][i]
-                # m += - x[j][i] + beta * (j / (i + j + 1)) * x[j - 1][i] + beta * (i / (i + j + 1)) * x[j][i - 1] \
-                #      - eps_slack <= ind[j][i]
-                # slack constraints #
-            elif (i == 0) & (j != 0) & (j + i <= n - 1):
-                if j + i == n - 1:
-                    m += x[j][i] - beta * (j / (i + j + 1)) * x[j - 1][i] - beta * x[j][i] <= 0
-                    m += x[j][i] - beta * (j / (i + j + 1)) * x[j - 1][i] - beta * x[j][i] == - ys[j][i]
-                else:
-                    m += x[j][i] - beta * (j / (i + j + 1)) * x[j - 1][i] <= 0
-                    m += x[j][i] - beta * (j / (i + j + 1)) * x[j - 1][i] == - ys[j][i]
-                # slack constraints #
-                # m += x[j][i] - beta * (j / (i + j + 1)) * x[j - 1][i] - eps_slack <= ind[j][i]
-                # m += - x[j][i] + beta * (j / (i + j + 1)) * x[j - 1][i] - eps_slack <= ind[j][i]
-                # slack constraints #
-            elif (i != 0) & (j == 0) & (j + i <= n - 1):
-                if j + i == n - 1:
-                    m += x[j][i] - beta * (i / (i + j + 1)) * x[j][i - 1] - beta * x[j][i] <= 0
-                    m += x[j][i] - beta * (i / (i + j + 1)) * x[j][i - 1] - beta * x[j][i] == - ys[j][i]
-                else:
-                    m += x[j][i] - beta * (i / (i + j + 1)) * x[j][i - 1] <= 0
-                    m += x[j][i] - beta * (i / (i + j + 1)) * x[j][i - 1] == - ys[j][i]
-                # slack constraints #
-                # m += x[j][i] - beta * (i / (i + j + 1)) * x[j][i - 1] - eps_slack <= ind[j][i]
-                # m += - x[j][i] + beta * (i / (i + j + 1)) * x[j][i - 1] - eps_slack <= ind[j][i]
-                # slack constraints #
+        for (i, j) in ((i, j) for (i, j) in product(range(n), range(n)) if i + j < n):
+            ind = j + i == n - 1  # if at leaf node
+            s = tr[str(j - 1) + str(i)]['s'] if j > 0 else 0  # success to state (j, i)
+            f = tr[str(j) + str(i - 1)]['f'] if i > 0 else 0  # failure to state (j, i)
+            r = 1 - tr[str(j) + str(i)]['r'] if i + j < n - 1 else 1  # remain
+            # in form (1 - prob) to shorten the constraint variable
+            if (i > 0) & (j > 0):
+                m += x[j][i] * r - beta * s * x[j - 1][i] - beta * f * x[j][i - 1] - beta * x[j][i] * ind <= 0
+                m += x[j][i] * r - beta * s * x[j - 1][i] - beta * f * x[j][i - 1] - beta * x[j][i] * ind == - ys[j][i]
+            elif (i == 0) & (j != 0):
+                m += x[j][i] * r - beta * s * x[j - 1][i] - beta * x[j][i] * ind <= 0
+                m += x[j][i] * r - beta * s * x[j - 1][i] - beta * x[j][i] * ind == - ys[j][i]
+            elif (i != 0) & (j == 0):
+                m += x[j][i] * r - beta * f * x[j][i - 1] - beta * x[j][i] * ind <= 0
+                m += x[j][i] * r - beta * f * x[j][i - 1] - beta * x[j][i] * ind == - ys[j][i]
 
     m += lpSum([x[j][i] for j in range(n) for i in range(n) if j + i <= n - 1]) <= mu
+    if whichobj != 'OPT':
+        m += lpSum([x[j][i] for j in range(n) for i in range(n) if j + i <= n - 1]) == mu
+
     m += x[0][0] <= lambd
+    m += x[0][0] - lambd == - ys[0][0]
+
+    if whichobj == 'OPT':
+        for (i, j) in ((i, j) for (i, j) in product(range(n), range(n)) if i + j <= (n - 1)):
+            m += ys[i][j] <= slacks[i][j]
+    else:
+        for (i, j) in product(range(n), range(n)):
+            m += x[i][j] <= bounds[i][j]
+        for (i, j) in ((i, j) for (i, j) in product(range(n), range(n)) if i + j <= (n - 1)):
+            m += ys[i][j] >= y
+            if slacks[i][j] == 1:
+                m += ys[i][j] == 0
 
     res = not m.solve(PULP_CBC_CMD(msg=False)) == LpSolutionOptimal
 
@@ -99,17 +93,29 @@ def succfailOpt(n, beta, lambd, mu, prevSoln, usePrevSoln, objective):
         obj += objective[j][i] * value(x[j][i])
 
     if not res:
-        print("The job constraint is %.10f" % mass)
-        print("Objective: ", obj)
-        for (i, j) in ((i, j) for (i, j) in product(range(n), range(n)) if i + j <= (n - 1)):
-            print("{:<2d} successes and {:<2d} failures have mass "
-                  "{:<.18f} and slack {:<.18f}".format(i + 1, j + 1, SolnX[i][j], SolnY[i][j]))
+        if whichobj == 'OPT':
+            print("The job constraint is %.10f" % mass)
+            print("Objective: ", obj)
+            for (i, j) in ((i, j) for (i, j) in product(range(n), range(n)) if i + j <= (n - 1)):
+                print("{:<2d} successes and {:<2d} failures have mass "
+                      "{:<.18f} and slack {:<.18f}".format(i + 1, j + 1, SolnX[i][j], SolnY[i][j]))
+        else:
+            if whichobj == 1:
+                print("regular objective")
+            elif whichobj == -1:
+                print("other objective")
+            elif whichobj == 0:
+                print("minimize the rewards objective")
+            print("Objective is ", obj, ", and y is ", value(y))
 
-    return SolnX, obj, mass, res
+    if whichobj == 'OPT':
+        return SolnX, res, obj, mass
+    else:
+        return SolnX, res, SolnY
 
 
 # bounds and slacks will be matrices, in the slacks matrix, the indices with 1 will be forced to have zero slacks
-def succfailOptFixedPointPriors(n, beta, lambd, mu, bounds, slacks, objMult, whichobj):
+def DEPRECATED_succfailOptFixedPointPriors(n, beta, lambd, mu, bounds, slacks, objMult, whichobj):
     m = LpProblem("p", LpMaximize)
     x = LpVariable.dicts("x", (range(n), range(n)), lowBound=0)
     y = LpVariable("y")
