@@ -145,5 +145,5 @@ def succfailFixedPoint(n, beta, lambd, mu, objective, tr):  # prints out the fix
 
     print("\nFinal objval in fixed point is", finalObjVal, "; changed solns", changed_soln)
     print(keepSoln)
-    print(keepSlacks)
+    print("slacks", keepSlacks)
     return keepSoln, finalObjVal, changed_soln, both_solns

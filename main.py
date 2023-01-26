@@ -3,11 +3,114 @@
 # from mip import *
 # import warnings
 from sys import exit
+from copy import deepcopy
 
 from simEnvironments import *
 from simEnvironmentsLinear import *
 
 pd.set_option('display.max_columns', None)
+
+def m_Matrix(rewards, transitions, beta, state_l):
+    dim = int(len(rewards) * (len(rewards) + 1) / 2)
+    mat = np.zeros((dim, dim))
+
+
+    succfail2rowcol = {}
+    counter = -1
+    for i in range(len(rewards)):
+        for j in range(len(rewards)):
+            if i + j < len(rewards):
+                counter += 1
+                succfail2rowcol[str(i) + str(j)] = counter
+
+    counter = -1
+    indices_ordered = np.argsort(-rewards.ravel())
+    flattenedPositions2index = {}
+    for i in range(dim):
+        flattened_index = indices_ordered[i]
+        row = int(np.floor(flattened_index / len(rewards)))
+        col = int(flattened_index - row * len(rewards))
+        flattened_position = succfail2rowcol[str(row) + str(col)]
+        counter += 1
+        flattenedPositions2index[str(flattened_position)] = counter
+        # print(flattened_position, row, col)
+
+    counter = -1
+    for i in range(dim):
+        flattened_index = indices_ordered[i]
+        row = int(np.floor(flattened_index / len(rewards)))
+        col = int(flattened_index - row * len(rewards))
+        counter += 1
+        flattened_position = succfail2rowcol[str(row) + str(col)]
+        # print(flattened_position, row, col)
+        if transitions[str(row) + str(col)]['s'] > 0:
+            feeds_into = succfail2rowcol[str(row + 1) + str(col)]
+            row2write = flattenedPositions2index[str(feeds_into)]
+            mat[row2write][counter] = beta * transitions[str(row) + str(col)]['s']
+        if transitions[str(row) + str(col)]['f'] > 0:
+            feeds_into = succfail2rowcol[str(row) + str(col + 1)]
+            row2write = flattenedPositions2index[str(feeds_into)]
+            mat[row2write][counter] = beta * transitions[str(row) + str(col)]['f']
+        if transitions[str(row) + str(col)]['r'] > 0:
+            mat[counter][counter] = beta * transitions[str(row) + str(col)]['r']
+
+
+    flattened_position = succfail2rowcol[str(state_l[0]) + str(state_l[1])]
+    toRemove = flattenedPositions2index[str(flattened_position)] + 1
+
+    mat2 = mat[:toRemove,:toRemove]
+    mat2[-1,:] = np.zeros(toRemove)
+
+    # build the transitions matrix which will abide by the indices of the flattened matrix
+    # succfail2rowcol = {}
+    # counter = -1
+    # for i in range(len(rewards)):
+    #     for j in range(len(rewards)):
+    #         if i + j < len(rewards):
+    #             counter += 1
+    #             succfail2rowcol[str(i) + str(j)] = counter
+    #             if transitions[str(i) + str(j)]['s'] > 0:
+    #                 mat[counter + len(rewards) - i][counter] = beta * transitions[str(i) + str(j)]['s']
+    #             if transitions[str(i) + str(j)]['f'] > 0:
+    #                 mat[counter + 1][counter] = beta * transitions[str(i) + str(j)]['f']
+    #             if transitions[str(i) + str(j)]['r'] > 0:
+    #                 mat[counter][counter] = beta * transitions[str(i) + str(j)]['r']
+    #
+    #
+    # indices_ordered = np.argsort(-rewards.ravel())
+    # print(indices_ordered)
+    # moved = 0
+    # for i in range(dim):
+    #     flattened_index = indices_ordered[i]
+    #     row = int(np.floor(flattened_index / len(rewards)))
+    #     col = int(flattened_index - row * len(rewards))
+    #     flattened_position = succfail2rowcol[str(row) + str(col)]
+    #     print(flattened_position)
+    #
+    #
+    #
+    #     moved += 1
+
+
+        # if row == state_l[0] and col == state_l[1]:
+        #     break
+
+
+    # build the transitions matrix which will abide by the indices of the flattened matrix
+    # for (i, j) in ((i, j) for (i, j) in product(range(len(rewards)), range(len(rewards))) if i + j < len(rewards)):
+    #     if transitions[str(i) + str(j)]['s'] > 0:
+    #         mat[i + len(rewards)][i * len(rewards) + j] = beta * transitions[str(i) + str(j)]['s']
+    #     if transitions[str(i) + str(j)]['f'] > 0:
+    #         mat[i + 1][i * len(rewards) + j] = beta * transitions[str(i) + str(j)]['f']
+    #     if transitions[str(i) + str(j)]['r'] > 0:
+    #         ij = i * (len(rewards) - 1) + j
+    #         mat[ij][ij] = beta * transitions[str(i) + str(j)]['r']
+
+
+
+
+
+    return mat2
 
 if __name__ == '__main__':
     # feedback
@@ -28,20 +131,124 @@ if __name__ == '__main__':
     #                    beta=beta)
 
     # tree
-    state = 4
-    beta = 0.95
-    mu_ = 0.72  # 0.74  # 1.05
-    lambda_ = 0.1  # 0.012 gives LME obj 0.10813, 0.015 gives LME obj 0.10644047581
-
+    state = 3  # 11
+    beta = 0.5 # 0.95
+    mu_ = 0.76 # 0.5
+    lambda_ = 0.5 # 0.041
     obj = np.zeros((state, state))
-    obj[0][0] = 0.5  # + .101
-    obj[0][1] = 0.4  # 0.35
-    obj[0][2] = 0.3  # 0.87233
-    obj[1][0] = 0.7
-    obj[1][1] = 0.6  # - 0.101  # platform decides to charge a fixed transaction fee?
-    # To discourage matches (instead of encouraging lower reward states by giving out incentives)
-    # this discouragement pushes OPT to be an LME, w/o any change in the objective value(?)
-    obj[2][0] = 0.8
+    transition = {}
+    trying = 1
+    smallestRatio = 1
+    # eps = 0.01
+
+    for (m, n) in ((i, j) for (i, j) in product(range(trying), range(trying))):
+        succ = m + 1
+        fail = n + 1
+        print("base state success", succ, "failure", fail)
+        for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
+            obj[i][j] = (succ + i) / (succ + fail + i + j)
+            transition[str(i) + str(j)] = {}
+            if i + j < (state - 1):
+                transition[str(i) + str(j)]['s'] = obj[i][j]  # success
+                transition[str(i) + str(j)]['f'] = 1 - transition[str(i) + str(j)]['s']  # failure
+                transition[str(i) + str(j)]['r'] = 0  # remain
+            else:
+                transition[str(i) + str(j)]['s'] = 0  # success
+                transition[str(i) + str(j)]['f'] = 0  # failure
+                transition[str(i) + str(j)]['r'] = 1
+            print(i, j, "", transition[str(i) + str(j)].values())
+            if sum(transition[str(i) + str(j)].values()) != 1:
+                exit("problem in (" + str(i) + ", " + str(j) + ")")
+        slacks = np.ones((state, state)) * max(mu_, lambda_ / (1 - beta))
+        # print("slacks\n", slacks, "\n", "-" * 20)
+        obj[1][1] += 0.01
+        print("obj\n", obj)
+
+        newSoln, res, objVal, mass = succfailOpt(n=len(obj), beta=beta, lambd=lambda_, mu=mu_,
+                                                 prevSoln=np.empty(0), usePrevSoln=False,
+                                                 objective=obj, tr=transition, slacks=slacks)
+        _, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta, lambd=lambda_,
+                                                 mu=min(mu_, mass), objective=obj, tr=transition)
+        A_matrix = m_Matrix(obj, transition, beta, np.array([0, 1]))
+        print(A_matrix)
+        print("\n")
+        I_A_inverse = np.linalg.inv(np.identity(len(A_matrix)) - A_matrix)
+        print(I_A_inverse)
+
+        if smallestRatio > objVal_LME / objVal:
+            smallestRatio = objVal_LME / objVal
+        print("Ratio of lme/opt", objVal_LME / objVal)
+        print("\nOpt solution")
+        print(newSoln)
+        print("=" * 30)
+        print("\n\n")
+    print("Smallest ratio of lme/opt", smallestRatio)
+    raise SystemExit(0)
+
+
+    if state <= 4:
+        for (m, n) in ((i, j) for (i, j) in product(range(trying), range(trying))):
+            aa = m + 1
+            bb = n + 1
+            print("success", aa, "failure", bb)
+            obj[0][0] = aa / (aa + bb)
+            obj[0][1] = aa / (aa + bb + 1)
+            obj[1][0] = min((aa + 1) / (aa + bb + 1) * 1, 1)
+            if state == 3:
+                obj[1][1] = obj[0][0] + 0.01 # min(obj[0][0] * 2, 1)  #
+                obj[0][2] = aa / (aa + bb + 2)
+                obj[2][0] = min((aa + 2) / (aa + bb + 2) * 1, 1)
+            if state == 4:
+                obj[2][2] = obj[1][1] + 0.001 # min(obj[0][0] * 2, 1)  #
+                obj[0][3] = aa / (aa + bb + 3)
+                obj[3][0] = min((aa + 3) / (aa + bb + 3) * 1, 1)
+                obj[1][2] = (aa + 1) / (aa + bb + 3)
+                obj[2][1] = min((aa + 2) / (aa + bb + 3) * 1, 1)
+            for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j < (state - 1)):
+                transition[str(i) + str(j)] = {}
+                if j == 5:
+                    transition[str(i) + str(j)]['s'] = (aa + i) / (aa + bb + i + j)  # success
+                    transition[str(i) + str(j)]['f'] = 0  # failure
+                    transition[str(i) + str(j)]['r'] = 1 - transition[str(i) + str(j)]['s'] - transition[str(i) + str(j)]['f']  # remain
+                elif i == 5:
+                    transition[str(i) + str(j)]['s'] = 0  # success
+                    transition[str(i) + str(j)]['f'] = (bb + i) / (aa + bb + i + j)  # failure
+                    transition[str(i) + str(j)]['r'] = 1 - transition[str(i) + str(j)]['s'] - transition[str(i) + str(j)]['f']  # remain
+                else:
+                    transition[str(i) + str(j)]['s'] = (aa + i) / (aa + bb + i + j)  # success
+                    transition[str(i) + str(j)]['f'] = 1 - transition[str(i) + str(j)]['s']  # failure
+                    transition[str(i) + str(j)]['r'] = 0  # remain
+                print(i, j, "", transition[str(i) + str(j)].values())
+                if sum(transition[str(i) + str(j)].values()) != 1:
+                    exit("problem in (" + str(i) + ", " + str(j) + ")")
+
+            slacks = np.ones((state, state)) * max(mu_, lambda_ / (1 - beta))
+            # print("slacks\n", slacks, "\n", "-" * 20)
+            print("obj\n", obj)
+            newSoln, res, objVal, mass = succfailOpt(n=len(obj), beta=beta, lambd=lambda_, mu=mu_,
+                                                     prevSoln=np.empty(0), usePrevSoln=False,
+                                                     objective=obj, tr=transition, slacks=slacks)
+            _, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta, lambd=lambda_,
+                                                     mu=min(mu_, mass), objective=obj, tr=transition)
+            if smallestRatio > objVal_LME/objVal:
+                smallestRatio = objVal_LME / objVal
+            print("Ratio of lme/opt", objVal_LME/objVal)
+            print("\nOpt solution")
+            print(newSoln)
+            print("=" * 30)
+            print("\n\n")
+        print("Smallest ratio of lme/opt", smallestRatio)
+        raise SystemExit(0)
+
+    if state >= 3:
+        obj[0][0] = 0.5  # + .101
+        obj[0][1] = 0.4  # 0.35
+        obj[0][2] = 0.3  # 0.87233
+        obj[1][0] = 0.7
+        obj[1][1] = 0.6  # - 0.101  # platform decides to charge a fixed transaction fee?
+        # To discourage matches (instead of encouraging lower reward states by giving out incentives)
+        # this discouragement pushes OPT to be an LME, w/o any change in the objective value(?)
+        obj[2][0] = 0.8
 
     if state == 4:
         obj[0][0] = 0.5
@@ -55,17 +262,18 @@ if __name__ == '__main__':
         obj[2][1] = 0.45
         obj[3][0] = 0.9
 
-    transition = {}
-    for (i, j) in ((i, j) for (i, j) in product(range(len(obj)), range(len(obj))) if i + j < (len(obj) - 1)):
-        transition[str(i) + str(j)] = {}
-        transition[str(i) + str(j)]['s'] = (i + 1) / (i + j + 2)  # success
-        transition[str(i) + str(j)]['f'] = 1 - transition[str(i) + str(j)]['s']  # failure
-        transition[str(i) + str(j)]['r'] = 0  # remain
-        print(i, j, "", transition[str(i) + str(j)].values())
-        if sum(transition[str(i) + str(j)].values()) != 1:
-            exit("problem in (" + str(i) + ", " + str(j) + ")")
-    # transition[str(1) + str(0)]['s'] = 1/30  # success
-    # transition[str(1) + str(0)]['f'] = 29/30
+    if state >= 3:
+        transition = {}
+        for (i, j) in ((i, j) for (i, j) in product(range(len(obj)), range(len(obj))) if i + j < (len(obj) - 1)):
+            transition[str(i) + str(j)] = {}
+            transition[str(i) + str(j)]['s'] = (i + 1) / (i + j + 2)  # success
+            transition[str(i) + str(j)]['f'] = 1 - transition[str(i) + str(j)]['s']  # failure
+            transition[str(i) + str(j)]['r'] = 0  # remain
+            print(i, j, "", transition[str(i) + str(j)].values())
+            if sum(transition[str(i) + str(j)].values()) != 1:
+                exit("problem in (" + str(i) + ", " + str(j) + ")")
+        # transition[str(1) + str(0)]['s'] = 1/30  # success
+        # transition[str(1) + str(0)]['f'] = 29/30
     slacks = np.ones((state, state)) * max(mu_, lambda_ / (1 - beta))
     # for (i, j) in product(range(len(obj)), range(len(obj))):
     #     slacks[i][j] = 0 if obj[0][0] < obj[i][j] else mu_
