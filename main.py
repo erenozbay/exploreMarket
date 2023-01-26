@@ -41,7 +41,7 @@ def m_Matrix(rewards, transitions, beta, state_l):
         row = int(np.floor(flattened_index / len(rewards)))
         col = int(flattened_index - row * len(rewards))
         counter += 1
-        flattened_position = succfail2rowcol[str(row) + str(col)]
+        # flattened_position = succfail2rowcol[str(row) + str(col)]
         # print(flattened_position, row, col)
         if transitions[str(row) + str(col)]['s'] > 0:
             feeds_into = succfail2rowcol[str(row + 1) + str(col)]
@@ -55,9 +55,11 @@ def m_Matrix(rewards, transitions, beta, state_l):
             mat[counter][counter] = beta * transitions[str(row) + str(col)]['r']
 
 
-    flattened_position = succfail2rowcol[str(state_l[0]) + str(state_l[1])]
+    flattened_position = succfail2rowcol[str(int(state_l[0])) + str(int(state_l[1]))]
     toRemove = flattenedPositions2index[str(flattened_position)] + 1
-
+    print("Indices ordered w.r.t. rewards", indices_ordered)
+    print("succ, fail to indices", flattenedPositions2index)
+    print("Full A matrix \n", mat, end="\n\n")
     mat2 = mat[:toRemove,:toRemove]
     mat2[-1,:] = np.zeros(toRemove)
 
@@ -161,25 +163,35 @@ if __name__ == '__main__':
                 exit("problem in (" + str(i) + ", " + str(j) + ")")
         slacks = np.ones((state, state)) * max(mu_, lambda_ / (1 - beta))
         # print("slacks\n", slacks, "\n", "-" * 20)
-        obj[1][1] += 0.01
         print("obj\n", obj)
 
         newSoln, res, objVal, mass = succfailOpt(n=len(obj), beta=beta, lambd=lambda_, mu=mu_,
                                                  prevSoln=np.empty(0), usePrevSoln=False,
                                                  objective=obj, tr=transition, slacks=slacks)
-        _, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta, lambd=lambda_,
+        LME_soln, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta, lambd=lambda_,
                                                  mu=min(mu_, mass), objective=obj, tr=transition)
-        A_matrix = m_Matrix(obj, transition, beta, np.array([0, 1]))
-        print(A_matrix)
-        print("\n")
-        I_A_inverse = np.linalg.inv(np.identity(len(A_matrix)) - A_matrix)
-        print(I_A_inverse)
+
+        state_l = np.zeros(2)
+        minRewUsedState = np.max(obj)
+
+        for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
+            if obj[i][j] < minRewUsedState and LME_soln[i][j] > 0:
+                minRewUsedState = obj[i][j]
+                state_l[0], state_l[1] = i, j
+
 
         if smallestRatio > objVal_LME / objVal:
             smallestRatio = objVal_LME / objVal
         print("Ratio of lme/opt", objVal_LME / objVal)
         print("\nOpt solution")
         print(newSoln)
+
+        print("state_l", state_l, "\n")
+        A_matrix = m_Matrix(obj, transition, beta, state_l)
+        print("A_matrix\n", A_matrix)
+        print()
+        I_A_inverse = np.linalg.inv(np.identity(len(A_matrix)) - A_matrix)
+        print("(I-A)^(-1)\n", I_A_inverse)
         print("=" * 30)
         print("\n\n")
     print("Smallest ratio of lme/opt", smallestRatio)
