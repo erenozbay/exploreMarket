@@ -7,8 +7,92 @@ from copy import deepcopy
 
 from simEnvironments import *
 from simEnvironmentsLinear import *
+from time import sleep
 
 pd.set_option('display.max_columns', None)
+
+
+def vectorOfChange(rewards, transitions, beta_val, l_state):
+    dim = int(len(rewards) * (len(rewards) + 1) / 2)  # instance dimension
+    mat = np.zeros((dim, dim))  # M matrix, (I-A)^(-1)
+
+    instance2rowcol = {}  # need to transform 2-dim states to a vector of states
+    # associate each state with a number, (0,0) is 0, (0,1) is 1, (0,2) is 2, and so on
+    # numbering is like this because .ravel() unravels a matrix in this order
+    counter = -1
+    for row in range(len(rewards)):
+        for col in range(len(rewards)):
+            if row + col < len(rewards):
+                counter += 1
+                instance2rowcol[str(row) + str(col)] = counter
+
+    counter = -1
+    indices_ordered = np.argsort(-rewards.ravel())  # to order states by decreasing rewards
+    flattenedPositions2index = {}  # re-number the states in order of decreasing rewards
+    for i in range(dim):
+        flattened_index = indices_ordered[i]  # map indices back to 2-dim states
+        row = int(np.floor(flattened_index / len(rewards)))
+        col = int(flattened_index - row * len(rewards))
+
+        # associate the original numbering of states to ordering by decreasing rewards
+        flattened_position = instance2rowcol[str(row) + str(col)]
+        counter += 1
+        flattenedPositions2index[str(flattened_position)] = counter
+
+
+    # build the A matrix column by column
+    counter = -1
+    for i in range(dim):
+        flattened_index = indices_ordered[i]
+        row = int(np.floor(flattened_index / len(rewards)))
+        col = int(flattened_index - row * len(rewards))
+        counter += 1
+
+        if transitions[str(row) + str(col)]['s'] > 0:
+            feeds_into = instance2rowcol[str(row + 1) + str(col)]
+            row2write = flattenedPositions2index[str(feeds_into)]
+            mat[row2write][counter] = beta_val * transitions[str(row) + str(col)]['s']
+        if transitions[str(row) + str(col)]['f'] > 0:
+            feeds_into = instance2rowcol[str(row) + str(col + 1)]
+            row2write = flattenedPositions2index[str(feeds_into)]
+            mat[row2write][counter] = beta_val * transitions[str(row) + str(col)]['f']
+        if transitions[str(row) + str(col)]['r'] > 0:
+            mat[counter][counter] = beta_val * transitions[str(row) + str(col)]['r']
+
+    # find the number of state l
+    flattened_position_l = instance2rowcol[str(int(l_state[0])) + str(int(l_state[1]))]
+    toRemove = flattenedPositions2index[str(flattened_position_l)] + 1
+    # will remove every state below it
+
+    # print(rewards)
+    # print("Indices ordered w.r.t. rewards", indices_ordered)
+    # print("succ, fail to indices", flattenedPositions2index)
+    # print("Full A matrix \n", mat, end="\n\n")
+
+    # remove every state below state l
+    mat2 = mat[:toRemove, :toRemove]
+    mat2[-1, :] = np.zeros(toRemove)  # last row should be all zeros
+    # print("Amended A matrix \n", mat2, end="\n\n")
+
+    # M matrix from A
+    mMat = np.linalg.inv(np.identity(len(mat2)) - mat2)
+    # print("(I-A)^(-1)\n", mMat)
+
+    # mVector = np.zeros(len(mMat))
+    posOfZero = flattenedPositions2index['0']
+    posOf_l = flattenedPositions2index[str(flattened_position_l)]
+
+    sumZero = mMat.sum(axis=0)[posOfZero]
+    sum_l = mMat.sum(axis=0)[posOf_l]
+
+    mVector = mMat[:,posOfZero] / sumZero - mMat[:,posOf_l] / sum_l
+
+    monotone = False
+    if all(mVector[:(posOfZero + 1)] >= 0):
+        monotone = True
+
+    return mVector, sumZero, monotone, posOfZero
+
 
 def m_Matrix(rewards, transitions, beta, state_l):
     dim = int(len(rewards) * (len(rewards) + 1) / 2)
@@ -57,6 +141,7 @@ def m_Matrix(rewards, transitions, beta, state_l):
 
     flattened_position = succfail2rowcol[str(int(state_l[0])) + str(int(state_l[1]))]
     toRemove = flattenedPositions2index[str(flattened_position)] + 1
+    print(rewards)
     print("Indices ordered w.r.t. rewards", indices_ordered)
     print("succ, fail to indices", flattenedPositions2index)
     print("Full A matrix \n", mat, end="\n\n")
@@ -108,13 +193,62 @@ def m_Matrix(rewards, transitions, beta, state_l):
     #         ij = i * (len(rewards) - 1) + j
     #         mat[ij][ij] = beta * transitions[str(i) + str(j)]['r']
 
-
-
-
-
-    return mat2
+    return mat2, flattenedPositions2index, indices_ordered, toRemove
 
 if __name__ == '__main__':
+    # tree
+    rng = 8
+    res = np.zeros(rng)
+    numIns = np.zeros(rng)
+    succRatio = np.zeros(rng)
+    trying = 10
+    beta = 0.5
+    for st in range(rng):
+        state = 4 + st
+        obj = np.zeros((state, state))
+        transition = {}
+        for (m, n) in ((i, j) for (i, j) in product(range(trying), range(trying))):
+            succ = n + 1  # (state - 3)
+            fail = m + 1
+            print("Prior is (" + str(succ) + ", " + str(fail) + ").")
+            for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
+                obj[i][j] = (succ + i) / (succ + fail + i + j)
+                transition[str(i) + str(j)] = {}
+                if i + j < (state - 1):
+                    transition[str(i) + str(j)]['s'] = obj[i][j]  # success
+                    transition[str(i) + str(j)]['f'] = 1 - transition[str(i) + str(j)]['s']  # failure
+                    transition[str(i) + str(j)]['r'] = 0  # remain
+                else:
+                    transition[str(i) + str(j)]['s'] = 0  # success
+                    transition[str(i) + str(j)]['f'] = 0  # failure
+                    transition[str(i) + str(j)]['r'] = 1
+                # print(i, j, "", transition[str(i) + str(j)].values())
+                if sum(transition[str(i) + str(j)].values()) != 1:
+                    exit("problem in (" + str(i) + ", " + str(j) + ")")
+
+            print("obj\n", obj)
+            # loop over all possible l states
+            state_l = np.zeros(2)
+            for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1) and obj[i][j] < obj[0][0]):
+                state_l[0], state_l[1] = i, j
+
+                check = vectorOfChange(obj, transition, beta, state_l)
+                numIns[st] += 1
+                if check[2]:
+                    res[st] += 1
+                    print("For instance size " + str(state - 1) + ", the current success stories is at " + str(int(res[st])))
+                else:
+                    print("Prior is (" + str(succ) + ", " + str(fail) + "). State zero is at " + str(check[3]) + ". M vector:")
+                    print(check[0])
+        succRatio[st] = res[st] / numIns[st]
+        print("Success ratio for instance size " + str(state - 1) + " is " + str(succRatio[st]))
+        # input('Press <ENTER> to continue\n')
+    print()
+    print("="*30, "\n")
+    print("Instance sizes " + str(3 + np.arange(rng)))
+    print("Success ratios (monotonicity in M vector) ")
+    print(succRatio)
+    raise SystemExit(0)
     # feedback
     # beta = 0.5
     # mu_ = 1.5
@@ -133,10 +267,11 @@ if __name__ == '__main__':
     #                    beta=beta)
 
     # tree
-    state = 3  # 11
-    beta = 0.5 # 0.95
-    mu_ = 0.76 # 0.5
-    lambda_ = 0.5 # 0.041
+    state = 7  # 11
+    beta = 0.5 # 0.75
+    mu_ = 0.85 # 0.5
+    lambda_ = 0.50 # 0.3
+    Delta = 0.005
     obj = np.zeros((state, state))
     transition = {}
     trying = 1
@@ -144,8 +279,8 @@ if __name__ == '__main__':
     # eps = 0.01
 
     for (m, n) in ((i, j) for (i, j) in product(range(trying), range(trying))):
-        succ = m + 1
-        fail = n + 1
+        succ = 3#n + (state - 3)
+        fail = 1#m + 1
         print("base state success", succ, "failure", fail)
         for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
             obj[i][j] = (succ + i) / (succ + fail + i + j)
@@ -171,30 +306,61 @@ if __name__ == '__main__':
         LME_soln, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta, lambd=lambda_,
                                                  mu=min(mu_, mass), objective=obj, tr=transition)
 
+        LME_soln2, objVal_LME2, _, _ = succfailFixedPoint(n=len(obj), beta=beta, lambd=lambda_+Delta,
+                                                        mu=min(mu_, mass), objective=obj, tr=transition)
+
         state_l = np.zeros(2)
+        state_l2 = np.zeros(2)
         minRewUsedState = np.max(obj)
+        minRewUsedState2 = np.max(obj)
 
         for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
-            if obj[i][j] < minRewUsedState and LME_soln[i][j] > 0:
+            if obj[i][j] <= minRewUsedState and LME_soln[i][j] > 0:
                 minRewUsedState = obj[i][j]
                 state_l[0], state_l[1] = i, j
+        for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
+            if obj[i][j] <= minRewUsedState2 and LME_soln2[i][j] > 0:
+                minRewUsedState2 = obj[i][j]
+                state_l2[0], state_l2[1] = i, j
+
+        if state_l[0] != state_l2[0] or state_l[1] != state_l2[1]:
+            exit("problem for the prior success " + str(succ) + ", failure " + str(fail))
 
 
-        if smallestRatio > objVal_LME / objVal:
-            smallestRatio = objVal_LME / objVal
-        print("Ratio of lme/opt", objVal_LME / objVal)
-        print("\nOpt solution")
-        print(newSoln)
+        # if smallestRatio > objVal_LME / objVal:
+        #     smallestRatio = objVal_LME / objVal
+        # print("Ratio of lme/opt", objVal_LME / objVal)
+        # print("\nOpt solution")
+        # print(newSoln)
 
         print("state_l", state_l, "\n")
-        A_matrix = m_Matrix(obj, transition, beta, state_l)
+        A_matrix, posOfStates, indicesOrdered, posOf_l = m_Matrix(obj, transition, beta, state_l)
+        print("state 0:", posOfStates['0'], "\n")
         print("A_matrix\n", A_matrix)
         print()
         I_A_inverse = np.linalg.inv(np.identity(len(A_matrix)) - A_matrix)
         print("(I-A)^(-1)\n", I_A_inverse)
+        # print("check the difference in the last column and the zero's column", end=" ")
+        # print(I_A_inverse[:,posOfStates['0']] - I_A_inverse[:,-1])
+        cVector = np.zeros(posOf_l)
+        cVector[posOf_l - 1] = LME_soln2[int(state_l[0])][int(state_l[1])] - LME_soln[int(state_l[0])][int(state_l[1])]
+        cVector[posOfStates['0']] = Delta
+
+        print("cVector", cVector)
+        resVec = np.dot(I_A_inverse, cVector)
+        print("M matrix dot product with c")
+        print(resVec)
+        print("base state success", succ, "failure", fail)
+        print("increase in LME reward", objVal_LME2 - objVal_LME)
+        # sleep(5)
+        print()
+        check = vectorOfChange(obj, transition, beta, state_l)
+        print(check[0]*check[1]*Delta)
+        input('Press <ENTER> to continue\n')
+
         print("=" * 30)
         print("\n\n")
-    print("Smallest ratio of lme/opt", smallestRatio)
+    # print("Smallest ratio of lme/opt", smallestRatio)
     raise SystemExit(0)
 
 
