@@ -1,7 +1,7 @@
 # this is for the tree model
 # from itertools import product
 # from mip import *
-# import warnings
+from warnings import warn
 from sys import exit
 from copy import deepcopy
 
@@ -27,6 +27,7 @@ def vectorOfChange(rewards, transitions, beta_val, l_state):
                 instance2rowcol[str(row) + str(col)] = counter
 
     counter = -1
+    rewards_ordered = -np.sort(-rewards.ravel())
     indices_ordered = np.argsort(-rewards.ravel())  # to order states by decreasing rewards
     flattenedPositions2index = {}  # re-number the states in order of decreasing rewards
     for i in range(dim):
@@ -91,7 +92,12 @@ def vectorOfChange(rewards, transitions, beta_val, l_state):
     if all(mVector[:(posOfZero + 1)] >= 0):
         monotone = True
 
-    return mVector, sumZero, monotone, posOfZero
+    positiveChangeInReward = False
+    change = np.dot(rewards_ordered[indices_ordered[:(posOf_l+1)]], mVector)
+    if change >= 0:
+        positiveChangeInReward = True
+
+    return mVector, sumZero, monotone, posOfZero, positiveChangeInReward, rewards_ordered, change
 
 
 def m_Matrix(rewards, transitions, beta, state_l):
@@ -198,19 +204,23 @@ def m_Matrix(rewards, transitions, beta, state_l):
 if __name__ == '__main__':
     # tree
     rng = 8
+    start = 4
     res = np.zeros(rng)
     numIns = np.zeros(rng)
     succRatio = np.zeros(rng)
-    trying = 10
+    priorSuccess = 10
+    priorFail = 10
     beta = 0.5
+    overallNegChange = 0
+    totInstances = 0
     for st in range(rng):
-        state = 4 + st
+        state = start + st
         obj = np.zeros((state, state))
         transition = {}
-        for (m, n) in ((i, j) for (i, j) in product(range(trying), range(trying))):
-            succ = n + 1  # (state - 3)
-            fail = m + 1
-            print("Prior is (" + str(succ) + ", " + str(fail) + ").")
+        for (m, n) in ((i, j) for (i, j) in product(range(priorSuccess), range(priorFail))):
+            succ = m + 1  # (state - 3)
+            fail = n + 1
+            # print("Prior is (" + str(succ) + ", " + str(fail) + "). Instance size " + str(state - 1))
             for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
                 obj[i][j] = (succ + i) / (succ + fail + i + j)
                 transition[str(i) + str(j)] = {}
@@ -226,28 +236,50 @@ if __name__ == '__main__':
                 if sum(transition[str(i) + str(j)].values()) != 1:
                     exit("problem in (" + str(i) + ", " + str(j) + ")")
 
-            print("obj\n", obj)
+            # print("obj\n", obj)
             # loop over all possible l states
             state_l = np.zeros(2)
+            localVar = 0
+            localVar_all = 0
+            localVar_obj = 0
             for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1) and obj[i][j] < obj[0][0]):
                 state_l[0], state_l[1] = i, j
+                totInstances += 1
 
                 check = vectorOfChange(obj, transition, beta, state_l)
                 numIns[st] += 1
+                localVar_all += 1
                 if check[2]:
                     res[st] += 1
-                    print("For instance size " + str(state - 1) + ", the current success stories is at " + str(int(res[st])))
+                    # print("For instance size " + str(state - 1) + ", the current success stories is at " + str(int(res[st])))
                 else:
-                    print("Prior is (" + str(succ) + ", " + str(fail) + "). State zero is at " + str(check[3]) + ". M vector:")
-                    print(check[0])
+                    # print("Prior is (" + str(succ) + ", " + str(fail) +
+                    #       "). State zero is at " + str(check[3]) + ". State l " + str(state_l) +
+                    #       ". M vector:")
+                    # print(check[0])  # M vector
+                    # print(check[5])  # ordered objectives
+                    # print("Zero column sum to " + str(check[1]) + ", change in obj val " + str(check[6]))  # sum of column of zero
+                    localVar += 1
+                    if not check[4]:
+                        localVar_obj += 1
+            if localVar == 0:
+                warn("\n\nPrior (" + str(succ) + ", " + str(fail) + "), instance size " + str(state - 1) + ", there are " + str(localVar) + " issues out of " +
+                      str(localVar_all) + ". Success ratio of " + str((localVar_all - localVar) / localVar_all) + ".\n")
+            else:
+                print("Prior (" + str(succ) + ", " + str(fail) + "), instance size " + str(state - 1) +
+                      ", negative change " + str(localVar_obj) + " times.")
+                print("there are " + str(localVar) + " issues out of " +
+                      str(localVar_all) + ". Success ratio of " + str((localVar_all - localVar) / localVar_all) + ".")
+            overallNegChange += localVar_obj
         succRatio[st] = res[st] / numIns[st]
-        print("Success ratio for instance size " + str(state - 1) + " is " + str(succRatio[st]))
+        # print("Success ratio for instance size " + str(state - 1) + " is " + str(succRatio[st]))
         # input('Press <ENTER> to continue\n')
     print()
     print("="*30, "\n")
-    print("Instance sizes " + str(3 + np.arange(rng)))
+    print("Instance sizes " + str(start - 1 + np.arange(rng)))
     print("Success ratios (monotonicity in M vector) ")
     print(succRatio)
+    print("Objective value decreased " + str(overallNegChange) + " times, out of " +str(totInstances) + " instances.")
     raise SystemExit(0)
     # feedback
     # beta = 0.5
