@@ -5,99 +5,13 @@ from warnings import warn
 from sys import exit
 from copy import deepcopy
 
+import pandas as pd
+
 from simEnvironments import *
 from simEnvironmentsLinear import *
 from time import sleep
 
 pd.set_option('display.max_columns', None)
-
-
-def vectorOfChange(rewards, transitions, beta_val, l_state):
-    dim = int(len(rewards) * (len(rewards) + 1) / 2)  # instance dimension
-    mat = np.zeros((dim, dim))  # M matrix, (I-A)^(-1)
-
-    instance2rowcol = {}  # need to transform 2-dim states to a vector of states
-    # associate each state with a number, (0,0) is 0, (0,1) is 1, (0,2) is 2, and so on
-    # numbering is like this because .ravel() unravels a matrix in this order
-    counter = -1
-    for row in range(len(rewards)):
-        for col in range(len(rewards)):
-            if row + col < len(rewards):
-                counter += 1
-                instance2rowcol[str(row) + str(col)] = counter
-
-    counter = -1
-    rewards_ordered = -np.sort(-rewards.ravel())
-    indices_ordered = np.argsort(-rewards.ravel())  # to order states by decreasing rewards
-    flattenedPositions2index = {}  # re-number the states in order of decreasing rewards
-    for i in range(dim):
-        flattened_index = indices_ordered[i]  # map indices back to 2-dim states
-        row = int(np.floor(flattened_index / len(rewards)))
-        col = int(flattened_index - row * len(rewards))
-
-        # associate the original numbering of states to ordering by decreasing rewards
-        flattened_position = instance2rowcol[str(row) + str(col)]
-        counter += 1
-        flattenedPositions2index[str(flattened_position)] = counter
-
-
-    # build the A matrix column by column
-    counter = -1
-    for i in range(dim):
-        flattened_index = indices_ordered[i]
-        row = int(np.floor(flattened_index / len(rewards)))
-        col = int(flattened_index - row * len(rewards))
-        counter += 1
-
-        if transitions[str(row) + str(col)]['s'] > 0:
-            feeds_into = instance2rowcol[str(row + 1) + str(col)]
-            row2write = flattenedPositions2index[str(feeds_into)]
-            mat[row2write][counter] = beta_val * transitions[str(row) + str(col)]['s']
-        if transitions[str(row) + str(col)]['f'] > 0:
-            feeds_into = instance2rowcol[str(row) + str(col + 1)]
-            row2write = flattenedPositions2index[str(feeds_into)]
-            mat[row2write][counter] = beta_val * transitions[str(row) + str(col)]['f']
-        if transitions[str(row) + str(col)]['r'] > 0:
-            mat[counter][counter] = beta_val * transitions[str(row) + str(col)]['r']
-
-    # find the number of state l
-    flattened_position_l = instance2rowcol[str(int(l_state[0])) + str(int(l_state[1]))]
-    toRemove = flattenedPositions2index[str(flattened_position_l)] + 1
-    # will remove every state below it
-
-    # print(rewards)
-    # print("Indices ordered w.r.t. rewards", indices_ordered)
-    # print("succ, fail to indices", flattenedPositions2index)
-    # print("Full A matrix \n", mat, end="\n\n")
-
-    # remove every state below state l
-    mat2 = mat[:toRemove, :toRemove]
-    mat2[-1, :] = np.zeros(toRemove)  # last row should be all zeros
-    # print("Amended A matrix \n", mat2, end="\n\n")
-
-    # M matrix from A
-    mMat = np.linalg.inv(np.identity(len(mat2)) - mat2)
-    # print("(I-A)^(-1)\n", mMat)
-
-    # mVector = np.zeros(len(mMat))
-    posOfZero = flattenedPositions2index['0']
-    posOf_l = flattenedPositions2index[str(flattened_position_l)]
-
-    sumZero = mMat.sum(axis=0)[posOfZero]
-    sum_l = mMat.sum(axis=0)[posOf_l]
-
-    mVector = mMat[:,posOfZero] / sumZero - mMat[:,posOf_l] / sum_l
-
-    monotone = False
-    if all(mVector[:(posOfZero + 1)] >= 0):
-        monotone = True
-
-    positiveChangeInReward = False
-    change = np.dot(rewards_ordered[indices_ordered[:(posOf_l+1)]], mVector)
-    if change >= 0:
-        positiveChangeInReward = True
-
-    return mVector, sumZero, monotone, posOfZero, positiveChangeInReward, rewards_ordered, change
 
 
 def m_Matrix(rewards, transitions, beta, state_l):
@@ -111,7 +25,7 @@ def m_Matrix(rewards, transitions, beta, state_l):
         for j in range(len(rewards)):
             if i + j < len(rewards):
                 counter += 1
-                succfail2rowcol[str(i) + str(j)] = counter
+                succfail2rowcol[str(i) + "_" + str(j)] = counter
 
     counter = -1
     indices_ordered = np.argsort(-rewards.ravel())
@@ -120,7 +34,7 @@ def m_Matrix(rewards, transitions, beta, state_l):
         flattened_index = indices_ordered[i]
         row = int(np.floor(flattened_index / len(rewards)))
         col = int(flattened_index - row * len(rewards))
-        flattened_position = succfail2rowcol[str(row) + str(col)]
+        flattened_position = succfail2rowcol[str(row) + "_" + str(col)]
         counter += 1
         flattenedPositions2index[str(flattened_position)] = counter
         # print(flattened_position, row, col)
@@ -133,19 +47,19 @@ def m_Matrix(rewards, transitions, beta, state_l):
         counter += 1
         # flattened_position = succfail2rowcol[str(row) + str(col)]
         # print(flattened_position, row, col)
-        if transitions[str(row) + str(col)]['s'] > 0:
-            feeds_into = succfail2rowcol[str(row + 1) + str(col)]
+        if transitions[str(row) + "_" + str(col)]['s'] > 0:
+            feeds_into = succfail2rowcol[str(row + 1) + "_" + str(col)]
             row2write = flattenedPositions2index[str(feeds_into)]
-            mat[row2write][counter] = beta * transitions[str(row) + str(col)]['s']
-        if transitions[str(row) + str(col)]['f'] > 0:
-            feeds_into = succfail2rowcol[str(row) + str(col + 1)]
+            mat[row2write][counter] = beta * transitions[str(row) + "_" + str(col)]['s']
+        if transitions[str(row) + "_" + str(col)]['f'] > 0:
+            feeds_into = succfail2rowcol[str(row) + "_" + str(col + 1)]
             row2write = flattenedPositions2index[str(feeds_into)]
-            mat[row2write][counter] = beta * transitions[str(row) + str(col)]['f']
-        if transitions[str(row) + str(col)]['r'] > 0:
-            mat[counter][counter] = beta * transitions[str(row) + str(col)]['r']
+            mat[row2write][counter] = beta * transitions[str(row) + "_" + str(col)]['f']
+        if transitions[str(row) + "_" + str(col)]['r'] > 0:
+            mat[counter][counter] = beta * transitions[str(row) + "_" + str(col)]['r']
 
 
-    flattened_position = succfail2rowcol[str(int(state_l[0])) + str(int(state_l[1]))]
+    flattened_position = succfail2rowcol[str(int(state_l[0])) + "_" + str(int(state_l[1]))]
     toRemove = flattenedPositions2index[str(flattened_position)] + 1
     print(rewards)
     print("Indices ordered w.r.t. rewards", indices_ordered)
@@ -201,39 +115,169 @@ def m_Matrix(rewards, transitions, beta, state_l):
 
     return mat2, flattenedPositions2index, indices_ordered, toRemove
 
+def vectorOfChange(rewards, transitions, beta_val, l_state):
+    dim = int(len(rewards) * (len(rewards) + 1) / 2)  # instance dimension
+    mat = np.zeros((dim, dim))  # M matrix, (I-A)^(-1)
+
+    instance2rowcol = {}  # need to transform 2-dim states to a vector of states
+    # associate each state with a number, (0,0) is 0, (0,1) is 1, (0,2) is 2, and so on
+    # numbering is like this because .ravel() unravels a matrix in this order
+    counter = -1
+    for row in range(len(rewards)):
+        for col in range(len(rewards)):
+            if row + col < len(rewards):
+                counter += 1
+                instance2rowcol[str(row) + "_" + str(col)] = counter
+
+    counter = -1
+    rewards_ordered = -np.sort(-rewards.ravel())
+    indices_ordered = np.argsort(-rewards.ravel())  # to order states by decreasing rewards
+    flattenedPositions2index = {}  # re-number the states in order of decreasing rewards
+    for i in range(dim):
+        flattened_index = indices_ordered[i]  # map indices back to 2-dim states
+        row = int(np.floor(flattened_index / len(rewards)))
+        col = int(flattened_index - row * len(rewards))
+
+        # associate the original numbering of states to ordering by decreasing rewards
+        flattened_position = instance2rowcol[str(row) + "_" + str(col)]
+        counter += 1
+        flattenedPositions2index[str(flattened_position)] = counter
+
+
+    # build the A matrix column by column
+    counter = -1
+    for i in range(dim):
+        flattened_index = indices_ordered[i]
+        row = int(np.floor(flattened_index / len(rewards)))
+        col = int(flattened_index - row * len(rewards))
+        counter += 1
+
+        if transitions[str(row) + "_" + str(col)]['s'] > 0:
+            feeds_into = instance2rowcol[str(row + 1) + "_" + str(col)]
+            row2write = flattenedPositions2index[str(feeds_into)]
+            mat[row2write][counter] = beta_val * transitions[str(row) + "_" + str(col)]['s']
+        if transitions[str(row) + "_" + str(col)]['f'] > 0:
+            feeds_into = instance2rowcol[str(row) + "_" + str(col + 1)]
+            row2write = flattenedPositions2index[str(feeds_into)]
+            mat[row2write][counter] = beta_val * transitions[str(row) + "_" + str(col)]['f']
+        if transitions[str(row) + "_" + str(col)]['r'] > 0:
+            mat[counter][counter] = beta_val * transitions[str(row) + "_" + str(col)]['r']
+
+    # find the number of state l
+    flattened_position_l = instance2rowcol[str(int(l_state[0])) + "_" + str(int(l_state[1]))]
+    toRemove = flattenedPositions2index[str(flattened_position_l)] + 1
+    # will remove every state below it
+
+    # print(rewards)
+    # print("Indices ordered w.r.t. rewards", indices_ordered)
+    # print("succ, fail to indices", flattenedPositions2index)
+    # print("Full A matrix \n", mat, end="\n\n")
+
+    # remove every state below state l
+    # print(mat.sum(axis=0))
+    mat2 = mat[:toRemove, :toRemove]
+    mat2[-1, :] = np.zeros(toRemove)  # last row should be all zeros
+    # print("Amended A matrix \n", mat2, end="\n\n")
+
+    # M matrix from A
+    mMat = np.linalg.inv(np.identity(len(mat2)) - mat2)
+    # print("(I-A)^(-1)\n", mMat)
+
+    # mVector = np.zeros(len(mMat))
+    posOfZero = flattenedPositions2index['0']
+    pos_of_l = flattenedPositions2index[str(flattened_position_l)]
+
+    sumZero = mMat.sum(axis=0)[posOfZero]
+    sum_l = mMat.sum(axis=0)[pos_of_l]
+
+    mVector = mMat[:,posOfZero] / sumZero - mMat[:,pos_of_l] / sum_l
+
+    monotone = False
+    # sumToNeg = 0
+    if all(mVector[:(posOfZero + 1)] >= 0):
+        monotone = True
+    # elif sum(mVector[(posOfZero + 1):]) < 0:
+    sumToNeg = sum(mVector[(posOfZero + 1):])
+
+    positiveChangeInReward = False
+    change = np.dot(rewards_ordered[:(pos_of_l+1)], mVector)
+    if change >= 0:
+        positiveChangeInReward = True
+
+    cumsumCheck = False
+    if all(np.cumsum(mVector[:pos_of_l]) >= 0):
+        cumsumCheck = True
+
+    if not cumsumCheck and monotone:
+        print(mVector)  # this shouldn't be printed at all
+
+    # if not cumsumCheck:
+    #     print(mVector)
+    #     print("below and including zero sums to " + str(sumToNeg))
+
+    return mVector, sumZero, monotone, posOfZero, positiveChangeInReward, \
+        rewards_ordered, change, sumToNeg, mMat, mat2, \
+        cumsumCheck
+
+
+
 if __name__ == '__main__':
+    all_start = time()
     # tree
-    rng = 8
+    rng = 28
     start = 4
     res = np.zeros(rng)
+    res_cumsum = np.zeros(rng)
     numIns = np.zeros(rng)
     succRatio = np.zeros(rng)
-    priorSuccess = 10
-    priorFail = 10
-    beta = 0.5
+    succRatio_cumsum = np.zeros(rng)
+    succ = np.zeros(rng)
+    negRatio = np.zeros(rng)
+    negChange_obj = np.zeros(rng)
+    fails = np.zeros(rng)
+    fails_cumsumNotAllPos = np.zeros(rng)
+    success_monotonicity = np.zeros(rng)
+    fails_cumsumNotAllPos_priors = {}
+    success_monotonicity_priors = {}
+    priorSuccess = start + rng - 2  # 10
+    priorFail = start + rng - 2  # 10
+    beta = 0.8
     overallNegChange = 0
     totInstances = 0
+    print("Will do instances " + str(start - 1) + " to " + str(start + rng - 2), end=". ")
+    print("Ranging priors from (1,1) to (" + str(priorSuccess) + "," + str(priorFail) + ").")
     for st in range(rng):
+        start_time = time()
         state = start + st
+        fails_cumsumNotAllPos_priors[str(state - 1)] = np.zeros((max(priorSuccess, priorFail) + 1, max(priorSuccess, priorFail)))
+        success_monotonicity_priors[str(state - 1)] = np.zeros((max(priorSuccess, priorFail), max(priorSuccess, priorFail)))
         obj = np.zeros((state, state))
         transition = {}
+        countPriors = 0
+        allGoodInThisPrior = 0
+        issueInThisPrior = 0
+        issueInThisPrior_cumsumNotAllPos = 0
+        print("=" * 30)
+        print("Instance size " + str(state - 1))
+        print()
         for (m, n) in ((i, j) for (i, j) in product(range(priorSuccess), range(priorFail))):
+            countPriors += 1
             succ = m + 1  # (state - 3)
             fail = n + 1
-            # print("Prior is (" + str(succ) + ", " + str(fail) + "). Instance size " + str(state - 1))
+            # print("Prior is (" + str(succ) + ", " + str(fail) + ").")
             for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
                 obj[i][j] = (succ + i) / (succ + fail + i + j)
-                transition[str(i) + str(j)] = {}
+                transition[str(i) + "_" + str(j)] = {}
                 if i + j < (state - 1):
-                    transition[str(i) + str(j)]['s'] = obj[i][j]  # success
-                    transition[str(i) + str(j)]['f'] = 1 - transition[str(i) + str(j)]['s']  # failure
-                    transition[str(i) + str(j)]['r'] = 0  # remain
+                    transition[str(i) + "_" + str(j)]['s'] = obj[i][j]  # success
+                    transition[str(i) + "_" + str(j)]['f'] = 1 - transition[str(i) + "_" + str(j)]['s']  # failure
+                    transition[str(i) + "_" + str(j)]['r'] = 0  # remain
                 else:
-                    transition[str(i) + str(j)]['s'] = 0  # success
-                    transition[str(i) + str(j)]['f'] = 0  # failure
-                    transition[str(i) + str(j)]['r'] = 1
+                    transition[str(i) + "_" + str(j)]['s'] = 0  # success
+                    transition[str(i) + "_" + str(j)]['f'] = 0  # failure
+                    transition[str(i) + "_" + str(j)]['r'] = 1
                 # print(i, j, "", transition[str(i) + str(j)].values())
-                if sum(transition[str(i) + str(j)].values()) != 1:
+                if sum(transition[str(i) + "_" + str(j)].values()) != 1:
                     exit("problem in (" + str(i) + ", " + str(j) + ")")
 
             # print("obj\n", obj)
@@ -242,44 +286,118 @@ if __name__ == '__main__':
             localVar = 0
             localVar_all = 0
             localVar_obj = 0
+            numIns_for_l_neg = 0
+            numIns_for_cumsumNotAllPos = 0
+            numIns_for_allGood = 0
+            # numIns_for_l = 0
             for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1) and obj[i][j] < obj[0][0]):
                 state_l[0], state_l[1] = i, j
                 totInstances += 1
+                # numIns_for_l += 1
 
                 check = vectorOfChange(obj, transition, beta, state_l)
                 numIns[st] += 1
                 localVar_all += 1
                 if check[2]:
                     res[st] += 1
+                    numIns_for_allGood += 1
+                    success_monotonicity_priors[str(state - 1)][int(succ - 1), int(fail - 1)] += 1
                     # print("For instance size " + str(state - 1) + ", the current success stories is at " + str(int(res[st])))
                 else:
-                    # print("Prior is (" + str(succ) + ", " + str(fail) +
-                    #       "). State zero is at " + str(check[3]) + ". State l " + str(state_l) +
-                    #       ". M vector:")
-                    # print(check[0])  # M vector
-                    # print(check[5])  # ordered objectives
-                    # print("Zero column sum to " + str(check[1]) + ", change in obj val " + str(check[6]))  # sum of column of zero
+                    if not check[10]:  # check[10] is true if cumsum of M vector is always positive up until state l
+                        fails_cumsumNotAllPos_priors[str(state - 1)][int(succ - 1), int(fail - 1)] += 1
+                        # print()
+                        # print("=" * 30)
+                        # print("Cumsum of M vector is not always positive!!!")
+                        # print("Prior (" + str(succ) + ", " + str(fail) + "), instance size " + str(state - 1) +
+                        #       ". State zero is at " + str(check[3]) + ". State l " + str(state_l) +
+                        #       ". Zero column sum " + str(check[1]) + ". M vector:")
+                        # print(check[0])  # M vector
+                        # print(check[5][:len(check[0])])  # ordered objectives
+                        numIns_for_cumsumNotAllPos = 1
+                        res_cumsum[st] += 1
+                    if check[7] >= 0:
+                        print()
+                        print("=" * 30)
+                        print("Prior is (" + str(succ) + ", " + str(fail) +
+                              "). State zero is at " + str(check[3]) + ". State l " + str(state_l) +
+                              ". Zero column sum " + str(check[1]) + ". M vector:")
+                        print(check[0])  # M vector
+                        print(check[5][:int(len(obj) * (len(obj) + 1) / 2)])  # ordered objectives
+                        print("change in obj val " + str(check[6]))
+                        print(check[8][:, check[3]])
+                        print("Zero column of M matrix above.\nPROBLEEEEEEEEM, below (and excluding) Zero sums to " + str(check[7]) + " == PROBLEEEEEEEEM")
                     localVar += 1
                     if not check[4]:
+                        negChange_obj[st] += 1
                         localVar_obj += 1
-            if localVar == 0:
-                warn("\n\nPrior (" + str(succ) + ", " + str(fail) + "), instance size " + str(state - 1) + ", there are " + str(localVar) + " issues out of " +
-                      str(localVar_all) + ". Success ratio of " + str((localVar_all - localVar) / localVar_all) + ".\n")
-            else:
+                        print()
+                        print("=" * 30)
+                        print("Prior is (" + str(succ) + ", " + str(fail) + ") State zero is at " + str(check[3]) +
+                              ". State l " + str(state_l) +
+                              ". Zero column sum " + str(check[1]) + ". M vector:")
+                        print(check[0])  # M vector
+                        print(check[5][:int(len(obj) * (len(obj) + 1) / 2)])  # ordered objectives
+                        print(check[8][:, check[3]])
+                        print("Zero column of M matrix above.\nNegative change in obj " + str(check[6]) +
+                              ", below Zero sums to " + str(check[7]) + "\n\n")
+                        numIns_for_l_neg = 1
+            success_monotonicity_priors[str(state - 1)][int(succ - 1), int(fail - 1)] /= localVar_all
+            issueInThisPrior += 1 if numIns_for_l_neg == 1 else 0
+            issueInThisPrior_cumsumNotAllPos += 1 if numIns_for_cumsumNotAllPos == 1 else 0
+            allGoodInThisPrior += 1 if numIns_for_allGood == localVar_all else 0
+            if localVar_obj > 0:
                 print("Prior (" + str(succ) + ", " + str(fail) + "), instance size " + str(state - 1) +
                       ", negative change " + str(localVar_obj) + " times.")
-                print("there are " + str(localVar) + " issues out of " +
-                      str(localVar_all) + ". Success ratio of " + str((localVar_all - localVar) / localVar_all) + ".")
-            overallNegChange += localVar_obj
+            # if localVar == 0:
+            #     warn("\n\nPrior (" + str(succ) + ", " + str(fail) + "), instance size " + str(state - 1) + ", there are " + str(localVar) + " issues out of " +
+            #           str(localVar_all) + ". Success ratio of " + str((localVar_all - localVar) / localVar_all) + ".\n")
+            # else:
+            #     print("Prior (" + str(succ) + ", " + str(fail) + "), instance size " + str(state - 1) +
+            #           ", negative change " + str(localVar_obj) + " times.")
+            #     print("there are " + str(localVar) + " issues out of " +
+            #           str(localVar_all) + ". Success ratio of " + str((localVar_all - localVar) / localVar_all) + ".")
+        fails_cumsumNotAllPos_priors[str(state - 1)][int(max(priorSuccess, priorFail)), :] = numIns[st]
+
+        overallNegChange += negChange_obj[st]
+        fails[st] = issueInThisPrior / countPriors
+        fails_cumsumNotAllPos[st] = issueInThisPrior_cumsumNotAllPos / countPriors
         succRatio[st] = res[st] / numIns[st]
+        success_monotonicity[st] = allGoodInThisPrior / countPriors
+        succRatio_cumsum[st] = res_cumsum[st] / numIns[st]
+
+        pd.DataFrame(fails_cumsumNotAllPos_priors[str(state - 1)]).to_csv("priors/insSize" + str(state - 1) + "_cumsumFails.csv",
+                                                                          index=False, header=False)
+
+        pd.DataFrame(success_monotonicity_priors[str(state - 1)]).to_csv("priors/insSize" + str(state - 1) + "_monotonicitySuccesses.csv",
+                                                                          index=False, header=False)
+        # succ[st] = allGoodInThisPrior / countPriors
+        # negRatio[st] = negChange_obj[st] / numIns[st]
+        print(str(countPriors) + " priors in total in this instance size. " + str(int(numIns[st])) +
+              " checked l states.\n" + "Took " + str(time() - start_time)[:6] + " seconds. Success ratio " +
+              str(success_monotonicity[st])[:6] + ". Across alll instances " + str(succRatio[st])[:6] + ".\n" +
+              str(1 - fails_cumsumNotAllPos[st])[:6] + " of instances where cumulative sums are all positive.")
+
         # print("Success ratio for instance size " + str(state - 1) + " is " + str(succRatio[st]))
         # input('Press <ENTER> to continue\n')
     print()
     print("="*30, "\n")
     print("Instance sizes " + str(start - 1 + np.arange(rng)))
-    print("Success ratios (monotonicity in M vector) ")
+    print("Success ratios (monotonicity in M vector) across all instances")
     print(succRatio)
+    print("Success ratios (monotonicity in M vector) across all priors - fail if a state l fails monotonicity")
+    print(success_monotonicity)
     print("Objective value decreased " + str(overallNegChange) + " times, out of " +str(totInstances) + " instances.")
+    print("Failure ratios (decrease in rewards) for at least one l in each prior ")
+    print(fails) #negRatio
+    print("Success ratios for cumulative sums being all positive for all l in each prior ")
+    print(1 - fails_cumsumNotAllPos)
+    print("Over all instances")
+    print(1 - succRatio_cumsum)
+    # for st in range(rng):
+    #     state = start + st
+        # print(fails_cumsumNotAllPos_priors[str(state - 1)])
+    print("Took " + str(time() - all_start)[:6] + " seconds.")
     raise SystemExit(0)
     # feedback
     # beta = 0.5
