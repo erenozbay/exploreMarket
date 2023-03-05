@@ -48,8 +48,10 @@ def vectorOfChange_rating(listOfStates, maxNumRat, beta_val, l_state, prior = np
         index = indices_ordered[i]
         for j in range(ratings):
             pos += str(int(listOfStates[index][j]))
+            pos += "_" if j < (ratings - 1) else ""
         statesAndIndices_ordered[pos] = i
 
+    # print(statesAndIndices_ordered)
     # transitions use state values (and the prior through the rewards)
     # build the A matrix column by column
     for i in range(dim):
@@ -63,6 +65,7 @@ def vectorOfChange_rating(listOfStates, maxNumRat, beta_val, l_state, prior = np
                 pos = ""
                 for j in range(ratings):
                     pos += str(int(listOfStates[index][j] + move[j]))
+                    pos += "_" if j < (ratings - 1) else ""
                 indexOfMove = statesAndIndices_ordered[pos]
                 mat[indexOfMove][i] = beta_val * transitionOrReward(listOfStates[index], prior)[k]
 
@@ -74,6 +77,7 @@ def vectorOfChange_rating(listOfStates, maxNumRat, beta_val, l_state, prior = np
     pos = ""
     for j in range(ratings):
         pos += str(int(l_state[j]))
+        pos += "_" if j < (ratings - 1) else ""
     pos_of_l = statesAndIndices_ordered[pos]
     toRemove = pos_of_l + 1
     mat2 = mat[:toRemove, :toRemove]
@@ -84,7 +88,7 @@ def vectorOfChange_rating(listOfStates, maxNumRat, beta_val, l_state, prior = np
     mMat = np.linalg.inv(np.identity(len(mat2)) - mat2)
     # print("(I-A)^(-1)\n", mMat)
 
-    posOfZero = statesAndIndices_ordered["".join([str(int(prior[i])) for i in range(ratings)])]
+    posOfZero = statesAndIndices_ordered["_".join([str(int(prior[i])) for i in range(ratings)])]
     sumZero = mMat.sum(axis=0)[posOfZero]
     sum_l = mMat.sum(axis=0)[pos_of_l]
 
@@ -240,43 +244,43 @@ if __name__ == '__main__':
     listOfStates = np.zeros((np.power(numRatings + 1, 4), 5))
     numRatings += 1
 
+    for shift in range(6):
+        worseThanZero = 0
+        prior = np.array([1 + (shift == 0), 1 + (shift == 1), 1 + (shift == 2), 1 + (shift == 3), 1 + (shift == 4)])
+        ratingOfZero = np.dot(transitionOrReward(np.zeros(rngRatings), prior), ratingsList)
+        print("State zero", prior ,",Rating of zero" , str(ratingOfZero)[:10])
+        iter = 0
+        for (i, j, k, l, m) in ((i, j, k, l, m) for (i, j, k, l, m) in
+                                product(range(numRatings), range(numRatings), range(numRatings), range(numRatings),
+                                        range(numRatings)) if i + j + k + l + m < numRatings):
+            listOfStates[iter, :] = np.array([i, j, k, l, m]) + prior
 
-    worseThanZero = 0
-    prior = np.array([1, 1, 1, 1, 1])
-    ratingOfZero = np.dot(transitionOrReward(np.zeros(rngRatings), prior), ratingsList)
-    print("Rating of zero" , str(ratingOfZero)[:10])
-    iter = 0
-    for (i, j, k, l, m) in ((i, j, k, l, m) for (i, j, k, l, m) in
-                            product(range(numRatings), range(numRatings), range(numRatings), range(numRatings),
-                                    range(numRatings)) if i + j + k + l + m < numRatings):
-        listOfStates[iter, :] = np.array([i, j, k, l, m]) + prior
-        # print("rating", np.dot(transitionOrReward(listOfStates[iter]), ratingsList))
-        if np.dot(transitionOrReward(listOfStates[iter]), ratingsList) < ratingOfZero:
-            worseThanZero += 1
-        iter += 1
-    listOfStates = listOfStates[:iter, :]
-    print(listOfStates, "\ntotal eligible state", iter, "\nstates worse than 0:", worseThanZero, "\n\n")
+            if np.dot(transitionOrReward(listOfStates[iter]), ratingsList) < ratingOfZero - 1e-15:
+                worseThanZero += 1
+            iter += 1
+        listOfStates = listOfStates[:iter, :]
+        print(listOfStates, "\ntotal eligible state", iter, "\nstates worse than 0:", worseThanZero, "\n\n")
 
-    l_state = np.zeros(rngRatings)
-    for i in range(1, len(listOfStates)):  # skip all zeros
-        if np.dot(listOfStates[i], ratingsList) / sum(listOfStates[i]) < ratingOfZero:
-            l_state = listOfStates[i]
-            worseThanZero -= 1
-            print("State l is", l_state)
-            res = vectorOfChange_rating(listOfStates, numRatings + sum(prior) - 1, 0.8, l_state, prior)
-            if res['changeInReward'] < 0 or not res['cumulativeSumsPositive']:
-                print("State l is", l_state)
-                print("Change in reward", res['changeInReward'], ", cumulative sums?", res['cumulativeSumsPositive'])
-                print("Zero is at", res['posOfZero'], ", column zero sums to", res['colZeroSum'], "\nbelow zero sums to",
-                      res['sumBelowZero'])
-                print("M is monotone?", res['monotoneM'])
-                if res['changeInReward'] < 0:
-                    print("\nM vector", res['mVector'])
-                    print("rewards_ordered\n", res['rewards_ordered'])
-                    exit()
-    print("Remaining states", worseThanZero)
+        l_state = np.zeros(rngRatings)
+        for i in range(1, len(listOfStates)):  # skip all zeros
+            if np.dot(transitionOrReward(listOfStates[i]), ratingsList) < ratingOfZero - 1e-15:
+                l_state = listOfStates[i]
+                worseThanZero -= 1
+                print("State l is", l_state, ", its rating", np.dot(transitionOrReward(listOfStates[i]), ratingsList))
+                res = vectorOfChange_rating(listOfStates, numRatings + sum(prior) - 1, 0.8, l_state, prior)
+                if res['changeInReward'] < 0 or not res['cumulativeSumsPositive']:
+                    print("Change in reward", res['changeInReward'], ", cumulative sums?", res['cumulativeSumsPositive'])
+                    print("M is monotone?", res['monotoneM'])
+                    if res['changeInReward'] < 0:
+                        print("Zero is at", res['posOfZero'], ", column zero sums to", res['colZeroSum'], "\nbelow zero sums to",
+                          res['sumBelowZero'], "\nM vector", res['mVector'])
+                        print("rewards_ordered\n", res['rewards_ordered'])
+                        exit()
+        if worseThanZero != 0:
+            print("PROBLEM!")
+            exit()
+
     exit()
-
     # tree
     all_start = time()
     rng = 3
