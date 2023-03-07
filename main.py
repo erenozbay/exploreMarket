@@ -4,70 +4,82 @@
 # from warnings import warn
 from sys import exit
 # from copy import deepcopy
-from scipy.stats import dirichlet
+# from scipy.stats import dirichlet
 # import pandas as pd
 
-# from simEnvironments import *
+from simEnvironments import *
 from simEnvironmentsLinear import *
 # from time import sleep
 
 pd.set_option('display.max_columns', None)
 
 
-def dirichletTransitionProb(quantiles, alpha):
-    return dirichlet.pdf(quantiles, alpha)
+# def dirichletTransitionProb(quantiles, alpha):
+#     return dirichlet.pdf(quantiles, alpha)
 
 
-def transitionOrReward(fromState, prior = np.array([0, 0, 0, 0, 0])):
-    totEvents = sum(fromState + prior)
-
-    if totEvents > 0:
-        probs = (fromState + prior) / totEvents
+def transitions(fromState):
+    if len(fromState) >= 2:
+        probs = fromState / sum(fromState)
     else:
-        probs = np.ones(len(fromState)) / len(fromState)
-
+        exit("Problem in transitions. Argument here should be 2 or larger.")
     return probs
 
-def vectorOfChange_rating(listOfStates, maxNumRat, beta_val, l_state, prior = np.array([1, 1, 1, 1, 1])):
+
+def vectorOfMultipliers(rngStates_):
+    if rngStates_ > 2:
+        baseRewardVector = np.arange(1, rngStates_ + 1) / rngStates_  # e.g. (0.2, 0.4, 0.6, 0.8, 1)
+    elif rngStates_ == 2:
+        baseRewardVector = np.array([0, 1])
+    else:
+        exit("Problem in vector of multipliers. Argument here should be 2 or larger.")
+    return baseRewardVector
+
+
+def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state, prior_info = None):
     # dim is the number of total eligible states
     dim = len(listOfStates)
     mat = np.zeros((dim, dim))  # A matrix
-    ratings = len(listOfStates[0])
-    ratingsList = np.arange(1, ratings + 1) / rngRatings
+    rewardBase = vectorOfMultipliers(rngStates_)
 
     rewards = np.zeros(dim)
-    for i in range(dim):
-        rewards[i] =  np.dot(transitionOrReward(listOfStates[i], prior), ratingsList)
+    for ii in range(dim):
+        rewards[ii] =  np.dot(transitions(listOfStates[ii]), rewardBase) + (ii == 0) * 1e-8  # nudge zero just a little
+                                                                                             # to get the sort proper
 
     rewards_ordered = -np.sort(-rewards)
     indices_ordered = np.argsort(-rewards)  # to order states by decreasing rewards
     # a dictionary where the key is the state (e.g., 00000) and value is its index in indices_ordered
     statesAndIndices_ordered = {}
-    for i in range(dim):
+    for ii in range(dim):
         pos = ""
-        index = indices_ordered[i]
-        for j in range(ratings):
+        index = indices_ordered[ii]
+        for j in range(rngStates_):
             pos += str(int(listOfStates[index][j]))
-            pos += "_" if j < (ratings - 1) else ""
-        statesAndIndices_ordered[pos] = i
+            pos += "_" if j < (rngStates_ - 1) else ""
+        statesAndIndices_ordered[pos] = ii
+        if index == 0:
+            rewards_ordered[ii] -= 1e-8  # remove the nudge at state zero
 
-    # print(statesAndIndices_ordered)
     # transitions use state values (and the prior through the rewards)
     # build the A matrix column by column
-    for i in range(dim):
-        index = indices_ordered[i]  # this is the original index of the state in listOfStates
-        if sum(listOfStates[index]) == maxNumRat:
-            mat[i][i] = beta_val
-        else:  # any middle state feeds into five different states
-            for k in range(ratings):
-                move = np.zeros(ratings)
-                move[k] = 1
+    for ii in range(dim):
+        index = indices_ordered[ii]  # this is the original index of the state in listOfStates
+        if sum(listOfStates[index]) == maxNumRat:  # if in a last state, remain
+            mat[ii][ii] = beta_val
+        else:  # any middle state feeds into rngStates_-many different states
+            checkTransitions = 0
+            for kk in range(rngStates_):
                 pos = ""
-                for j in range(ratings):
-                    pos += str(int(listOfStates[index][j] + move[j]))
-                    pos += "_" if j < (ratings - 1) else ""
+                for jj in range(rngStates_):  # take exactly 1 step in each direction one-by-one
+                    pos += str(int(listOfStates[index][jj] + (jj == kk)))
+                    pos += "_" if jj < (rngStates_ - 1) else ""
                 indexOfMove = statesAndIndices_ordered[pos]
-                mat[indexOfMove][i] = beta_val * transitionOrReward(listOfStates[index], prior)[k]
+                moveProb = transitions(listOfStates[index])[kk]
+                mat[indexOfMove][ii] = beta_val * moveProb
+                checkTransitions += moveProb
+            if checkTransitions <= 1 - 1e-12:
+                exit("Problem in the transition probabilities - they do not sum up to 1.")
 
     # print("Full A matrix\n", mat, end="\n\n")
     if sum(np.abs(sum(mat) - beta_val)) > 1e-12:
@@ -75,9 +87,9 @@ def vectorOfChange_rating(listOfStates, maxNumRat, beta_val, l_state, prior = np
 
     # find the position of state l and remove all rows/columns below/right of it, zero out the last row
     pos = ""
-    for j in range(ratings):
-        pos += str(int(l_state[j]))
-        pos += "_" if j < (ratings - 1) else ""
+    for jj in range(rngStates_):
+        pos += str(int(l_state[jj]))
+        pos += "_" if jj < (rngStates_ - 1) else ""
     pos_of_l = statesAndIndices_ordered[pos]
     toRemove = pos_of_l + 1
     mat2 = mat[:toRemove, :toRemove]
@@ -88,7 +100,7 @@ def vectorOfChange_rating(listOfStates, maxNumRat, beta_val, l_state, prior = np
     mMat = np.linalg.inv(np.identity(len(mat2)) - mat2)
     # print("(I-A)^(-1)\n", mMat)
 
-    posOfZero = statesAndIndices_ordered["_".join([str(int(prior[i])) for i in range(ratings)])]
+    posOfZero = statesAndIndices_ordered["_".join([str(int(prior_info[i])) for i in range(rngStates_)])]
     sumZero = mMat.sum(axis=0)[posOfZero]
     sum_l = mMat.sum(axis=0)[pos_of_l]
 
@@ -98,7 +110,6 @@ def vectorOfChange_rating(listOfStates, maxNumRat, beta_val, l_state, prior = np
     # sumToNeg = 0
     if all(mVector[:(posOfZero + 1)] >= 0):
         monotone = True
-    # elif sum(mVector[(posOfZero + 1):]) < 0:
     sumToNeg = sum(mVector[(posOfZero + 1):])
 
     positiveChangeInReward = False
@@ -107,8 +118,8 @@ def vectorOfChange_rating(listOfStates, maxNumRat, beta_val, l_state, prior = np
         positiveChangeInReward = True
 
     cumsumCheck = False
-    # if all(np.cumsum(mVector[:pos_of_l]) >= 0):
-    if all(np.cumsum(mVector[:pos_of_l] * rewards_ordered[:pos_of_l]) >= 0):
+    if all(np.cumsum(mVector[:pos_of_l]) >= 0):
+    # if all(np.cumsum(mVector[:pos_of_l] * rewards_ordered[:pos_of_l]) >= 0):
         cumsumCheck = True
 
     if not cumsumCheck and monotone:
@@ -120,28 +131,35 @@ def vectorOfChange_rating(listOfStates, maxNumRat, beta_val, l_state, prior = np
     #     print("below and excluding zero sums to " + str(sumToNeg))
     #     exit()
 
+    rewardOfNegChangeStateAboveZero = np.zeros(1)
+    for el in range(posOfZero):
+        if mVector[el] < 0:
+            rewardHere = rewards_ordered[el]
+            rewardOfNegChangeStateAboveZero = np.append(rewardOfNegChangeStateAboveZero, rewardHere)
+    rewardOfNegChangeStateAboveZero = rewardOfNegChangeStateAboveZero[1:]
+
     return {'mVector': mVector, 'colZeroSum': sumZero, 'monotoneM': monotone,
             'posOfZero': posOfZero, 'positiveChangeInReward': positiveChangeInReward,
             'rewards_ordered': rewards_ordered, 'changeInReward': change,
             'sumBelowZero': sumToNeg, 'mMat': mMat, 'truncatedA': mat2,
-            'cumulativeSumsPositive': cumsumCheck}
+            'cumulativeSumsPositive': cumsumCheck, 'rewardOfNegChangeStateAboveZero': rewardOfNegChangeStateAboveZero}
 
 
-def vectorOfChange_succFail(rewards, transitions, beta_val, l_state):
+def vectorOfChange_succFail(rewards, transitions_, beta_val, l_state):
     dim = int(len(rewards) * (len(rewards) + 1) / 2)  # instance dimension
     mat = np.zeros((dim, dim))  # M matrix, (I-A)^(-1)
 
     instance2rowcol = {}  # need to transform 2-dim states to a vector of states
     # associate each state with a number, (0,0) is 0, (0,1) is 1, (0,2) is 2, and so on
     # numbering is like this because .ravel() unravels a matrix in this order
-    counter = -1
+    counter_ = -1
     for row in range(len(rewards)):
         for col in range(len(rewards)):
             if row + col < len(rewards):
-                counter += 1
-                instance2rowcol[str(row) + "_" + str(col)] = counter
+                counter_ += 1
+                instance2rowcol[str(row) + "_" + str(col)] = counter_
 
-    counter = -1
+    counter_ = -1
     rewards_ordered = -np.sort(-rewards.ravel())
     indices_ordered = np.argsort(-rewards.ravel())  # to order states by decreasing rewards
     flattenedPositions2index = {}  # re-number the states in order of decreasing rewards
@@ -152,28 +170,28 @@ def vectorOfChange_succFail(rewards, transitions, beta_val, l_state):
 
         # associate the original numbering of states to ordering by decreasing rewards
         flattened_position = instance2rowcol[str(row) + "_" + str(col)]
-        counter += 1
-        flattenedPositions2index[str(flattened_position)] = counter
+        counter_ += 1
+        flattenedPositions2index[str(flattened_position)] = counter_
 
 
     # build the A matrix column by column
-    counter = -1
+    counter_ = -1
     for i in range(dim):
         flattened_index = indices_ordered[i]
         row = int(np.floor(flattened_index / len(rewards)))
         col = int(flattened_index - row * len(rewards))
-        counter += 1
+        counter_ += 1
 
-        if transitions[str(row) + "_" + str(col)]['s'] > 0:
+        if transitions_[str(row) + "_" + str(col)]['s'] > 0:
             feeds_into = instance2rowcol[str(row + 1) + "_" + str(col)]
             row2write = flattenedPositions2index[str(feeds_into)]
-            mat[row2write][counter] = beta_val * transitions[str(row) + "_" + str(col)]['s']
-        if transitions[str(row) + "_" + str(col)]['f'] > 0:
+            mat[row2write][counter_] = beta_val * transitions_[str(row) + "_" + str(col)]['s']
+        if transitions_[str(row) + "_" + str(col)]['f'] > 0:
             feeds_into = instance2rowcol[str(row) + "_" + str(col + 1)]
             row2write = flattenedPositions2index[str(feeds_into)]
-            mat[row2write][counter] = beta_val * transitions[str(row) + "_" + str(col)]['f']
-        if transitions[str(row) + "_" + str(col)]['r'] > 0:
-            mat[counter][counter] = beta_val * transitions[str(row) + "_" + str(col)]['r']
+            mat[row2write][counter_] = beta_val * transitions_[str(row) + "_" + str(col)]['f']
+        if transitions_[str(row) + "_" + str(col)]['r'] > 0:
+            mat[counter_][counter_] = beta_val * transitions_[str(row) + "_" + str(col)]['r']
 
     # find the number of state l
     flattened_position_l = instance2rowcol[str(int(l_state[0])) + "_" + str(int(l_state[1]))]
@@ -237,50 +255,101 @@ def vectorOfChange_succFail(rewards, transitions, beta_val, l_state):
 
 
 if __name__ == '__main__':
-    # ratings
-    numRatings = 5  # total number of ratings that can be received
-    rngRatings = 5  # keep this as 5 for 5 star rating
-    ratingsList = np.arange(1, rngRatings + 1) / rngRatings
-    listOfStates = np.zeros((np.power(numRatings + 1, 4), 5))
-    numRatings += 1
+    all_start = time()
+    # priors go from (1,1) to whatever
+    # for success-fail model, (a,b) holds for a fails and b successes
+    numTrans = 5  # total number of ratings that can be received, or total number of transitions before reaching the end
+    rngStates = 5  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
+    ratingsList = vectorOfMultipliers(rngStates)  # reward of a state is dot product of this and the state
+    eligibleStates = np.zeros((int(1e4), rngStates))
 
-    for shift in range(6):
+    numPriors = 3 # should be very small for the general case, >2 state dimensions.
+    if rngStates == 2:
+        priorSuccess = int(np.sqrt(numPriors))
+        priorFail = int(np.sqrt(numPriors))
+        priorList = np.zeros((int(priorSuccess * priorFail), rngStates))
+        counter = 0
+        for (m, n) in ((i, j) for (i, j) in product(range(priorFail), range(priorSuccess))):
+            priorList[counter] = np.array([m + 1, n + 1])
+            counter += 1
+        priorList = priorList[:counter]
+    elif rngStates > 2:
+        if numPriors > 4:
+            exit("numPriors is too large, are you sure to run this?? Exiting...")
+        priorList = np.ones((np.power(numPriors + 1, rngStates), rngStates))
+        range_list = [numPriors + 1] * rngStates
+        counter = 0
+        for i in product(*map(range, range_list)):
+            candidate = np.array(i)
+            if not any(candidate == 0):  # cannot have any zeros because it implies no transition to a similar up state
+                priorList[counter] = candidate
+                counter += 1
+        priorList = priorList[:counter]
+        # print(priorList, len(priorList))
+        # exit()
+    else:
+        priorList = np.empty()
+        exit("Need at least 2 for rngStates.")
+    input('There are ' + str(counter) + ' priors. Press <ENTER> to continue\n')
+    priorBasedOutcomes = np.ones((len(priorList), 2))  # first column for monotonicity, second for cumulative sum
+                                                    # remains 1 if all is good for one prior
+
+    countPriors = 0
+    for prInd in range(len(priorList)):
         worseThanZero = 0
-        prior = np.array([1 + (shift == 0), 1 + (shift == 1), 1 + (shift == 2), 1 + (shift == 3), 1 + (shift == 4)])
-        ratingOfZero = np.dot(transitionOrReward(np.zeros(rngRatings), prior), ratingsList)
-        print("State zero", prior ,",Rating of zero" , str(ratingOfZero)[:10])
-        iter = 0
-        for (i, j, k, l, m) in ((i, j, k, l, m) for (i, j, k, l, m) in
-                                product(range(numRatings), range(numRatings), range(numRatings), range(numRatings),
-                                        range(numRatings)) if i + j + k + l + m < numRatings):
-            listOfStates[iter, :] = np.array([i, j, k, l, m]) + prior
-
-            if np.dot(transitionOrReward(listOfStates[iter]), ratingsList) < ratingOfZero - 1e-15:
+        prior = priorList[prInd]  # np.array([1 + (prInd == 0), 1 + (prInd == 1), 1 + (prInd == 2), 1 + (prInd == 3), 1 + (prInd == 4)])
+        ratingOfZero = np.dot(transitions(prior), ratingsList)  # prior is always the state zero
+        print("\nState zero", prior ,",Rating of zero" , str(ratingOfZero)[:10])
+        iter_ = 0
+        range_list = [numTrans + 1] * rngStates
+        for i in (i for i in product(*map(range, range_list)) if sum(np.array(i)) <= numTrans):
+            eligibleStates[iter_, :] = np.array(i) + prior
+            if np.dot(transitions(eligibleStates[iter_]), ratingsList) < ratingOfZero - 1e-15:
                 worseThanZero += 1
-            iter += 1
-        listOfStates = listOfStates[:iter, :]
-        print(listOfStates, "\ntotal eligible state", iter, "\nstates worse than 0:", worseThanZero, "\n\n")
+            iter_ += 1
+        eligibleStates = eligibleStates[:iter_, :]
+        print(eligibleStates, "\ntotal eligible state", iter_, "\nstates worse than 0:", worseThanZero, "\n\n")
 
-        l_state = np.zeros(rngRatings)
-        for i in range(1, len(listOfStates)):  # skip all zeros
-            if np.dot(transitionOrReward(listOfStates[i]), ratingsList) < ratingOfZero - 1e-15:
-                l_state = listOfStates[i]
+        state_l = np.zeros(rngStates)
+        for i in range(1, len(eligibleStates)):  # skip state zero
+            if np.dot(transitions(eligibleStates[i]), ratingsList) < ratingOfZero - 1e-15:
+                state_l = eligibleStates[i]
                 worseThanZero -= 1
-                print("State l is", l_state, ", its rating", np.dot(transitionOrReward(listOfStates[i]), ratingsList))
-                res = vectorOfChange_rating(listOfStates, numRatings + sum(prior) - 1, 0.8, l_state, prior)
+                print("State l is", state_l, ", its rating", np.dot(transitions(eligibleStates[i]), ratingsList))
+                res = vectorOfChange_rating(eligibleStates, rngStates, numTrans + sum(prior), 0.8, state_l, prior)
+                if not res['cumulativeSumsPositive']:
+                    priorBasedOutcomes[countPriors, 1] = 0 # cumulative sums
+                if not res['monotoneM']:
+                    priorBasedOutcomes[countPriors, 0] = 0 # monotonicity
                 if res['changeInReward'] < 0 or not res['cumulativeSumsPositive']:
-                    print("Change in reward", res['changeInReward'], ", cumulative sums?", res['cumulativeSumsPositive'])
+                    print("Change in reward", str(res['changeInReward'])[:10], ", cumulative sums?", res['cumulativeSumsPositive'])
                     print("M is monotone?", res['monotoneM'])
                     if res['changeInReward'] < 0:
-                        print("Zero is at", res['posOfZero'], ", column zero sums to", res['colZeroSum'], "\nbelow zero sums to",
+                        print("Zero at", res['posOfZero'], ", col zero sums to", res['colZeroSum'], ",below zero to",
                           res['sumBelowZero'], "\nM vector", res['mVector'])
                         print("rewards_ordered\n", res['rewards_ordered'])
-                        exit()
+                        exit("Negative change in reward.")
+
+                    print("Zero at", res['posOfZero'], ", col zero sum", str(res['colZeroSum'])[:6],
+                          "below zero", str(res['sumBelowZero'])[:7], "\nM vector dim", len(res['mVector']))
+                    print(res['mVector'])
+                    print("Rewards of states with negative change", res['rewardOfNegChangeStateAboveZero'],
+                          "\nRating of zero" , str(ratingOfZero)[:10], "\n")
         if worseThanZero != 0:
-            print("PROBLEM!")
+            print("PROBLEM! Didn't loop over all possible l states.")
             exit()
 
-    exit()
+
+        countPriors += 1
+        # input('Press <ENTER> to continue\n')
+    originalOptions = np.get_printoptions()
+    np.set_printoptions(threshold=np.inf)
+    print(priorBasedOutcomes)
+    np.set_printoptions(**originalOptions)
+    print(sum(priorBasedOutcomes))
+    exit("Successfully finished. Took " + str(time() - all_start)[:6] + " seconds.")
+
+def tree():
     # tree
     all_start = time()
     rng = 3
@@ -457,7 +526,7 @@ if __name__ == '__main__':
     #     state = start + st
         # print(fails_cumsumNotAllPos_priors[str(state - 1)])
     print("Took " + str(time() - all_start)[:6] + " seconds.")
-    raise SystemExit(0)
+    # raise SystemExit(0)
     # feedback
     # beta = 0.5
     # mu_ = 1.5
@@ -477,19 +546,19 @@ if __name__ == '__main__':
 
     # tree
 
-    def m_Matrix(rewards, transitions, beta, state_l):
+    def m_Matrix(rewards, transitions_, beta_, state_l_):
         dim = int(len(rewards) * (len(rewards) + 1) / 2)
         mat = np.zeros((dim, dim))
 
         succfail2rowcol = {}
-        counter = -1
+        counter_ = -1
         for i in range(len(rewards)):
             for j in range(len(rewards)):
                 if i + j < len(rewards):
-                    counter += 1
-                    succfail2rowcol[str(i) + "_" + str(j)] = counter
+                    counter_ += 1
+                    succfail2rowcol[str(i) + "_" + str(j)] = counter_
 
-        counter = -1
+        counter_ = -1
         indices_ordered = np.argsort(-rewards.ravel())
         flattenedPositions2index = {}
         for i in range(dim):
@@ -497,30 +566,30 @@ if __name__ == '__main__':
             row = int(np.floor(flattened_index / len(rewards)))
             col = int(flattened_index - row * len(rewards))
             flattened_position = succfail2rowcol[str(row) + "_" + str(col)]
-            counter += 1
-            flattenedPositions2index[str(flattened_position)] = counter
+            counter_ += 1
+            flattenedPositions2index[str(flattened_position)] = counter_
             # print(flattened_position, row, col)
 
-        counter = -1
+        counter_ = -1
         for i in range(dim):
             flattened_index = indices_ordered[i]
             row = int(np.floor(flattened_index / len(rewards)))
             col = int(flattened_index - row * len(rewards))
-            counter += 1
+            counter_ += 1
             # flattened_position = succfail2rowcol[str(row) + str(col)]
             # print(flattened_position, row, col)
-            if transitions[str(row) + "_" + str(col)]['s'] > 0:
+            if transitions_[str(row) + "_" + str(col)]['s'] > 0:
                 feeds_into = succfail2rowcol[str(row + 1) + "_" + str(col)]
                 row2write = flattenedPositions2index[str(feeds_into)]
-                mat[row2write][counter] = beta * transitions[str(row) + "_" + str(col)]['s']
-            if transitions[str(row) + "_" + str(col)]['f'] > 0:
+                mat[row2write][counter_] = beta_ * transitions_[str(row) + "_" + str(col)]['s']
+            if transitions_[str(row) + "_" + str(col)]['f'] > 0:
                 feeds_into = succfail2rowcol[str(row) + "_" + str(col + 1)]
                 row2write = flattenedPositions2index[str(feeds_into)]
-                mat[row2write][counter] = beta * transitions[str(row) + "_" + str(col)]['f']
-            if transitions[str(row) + "_" + str(col)]['r'] > 0:
-                mat[counter][counter] = beta * transitions[str(row) + "_" + str(col)]['r']
+                mat[row2write][counter_] = beta_ * transitions_[str(row) + "_" + str(col)]['f']
+            if transitions_[str(row) + "_" + str(col)]['r'] > 0:
+                mat[counter_][counter_] = beta_ * transitions_[str(row) + "_" + str(col)]['r']
 
-        flattened_position = succfail2rowcol[str(int(state_l[0])) + "_" + str(int(state_l[1]))]
+        flattened_position = succfail2rowcol[str(int(state_l_[0])) + "_" + str(int(state_l_[1]))]
         toRemove = flattenedPositions2index[str(flattened_position)] + 1
         print(rewards)
         print("Indices ordered w.r.t. rewards", indices_ordered)
@@ -586,9 +655,9 @@ if __name__ == '__main__':
     smallestRatio = 1
     # eps = 0.01
 
-    for (m, n) in ((i, j) for (i, j) in product(range(trying), range(trying))):
-        succ = 3#n + (state - 3)
-        fail = 1#m + 1
+    for (m_, n_) in ((i, j) for (i, j) in product(range(trying), range(trying))):
+        succ = n_ + 1  # (state - 3)
+        fail = m_ + 1
         print("base state success", succ, "failure", fail)
         for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
             obj[i][j] = (succ + i) / (succ + fail + i + j)
@@ -608,7 +677,7 @@ if __name__ == '__main__':
         # print("slacks\n", slacks, "\n", "-" * 20)
         print("obj\n", obj)
 
-        newSoln, res, objVal, mass = succfailOpt(n=len(obj), beta=beta, lambd=lambda_, mu=mu_,
+        newSoln, _, objVal, mass = succfailOpt(n=len(obj), beta=beta, lambd=lambda_, mu=mu_,
                                                  prevSoln=np.empty(0), usePrevSoln=False,
                                                  objective=obj, tr=transition, slacks=slacks)
         LME_soln, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta, lambd=lambda_,
@@ -662,20 +731,20 @@ if __name__ == '__main__':
         print("increase in LME reward", objVal_LME2 - objVal_LME)
         # sleep(5)
         print()
-        check = vectorOfChange(obj, transition, beta, state_l)
+        check = vectorOfChange_succFail(obj, transition, beta, state_l)
         print(check[0]*check[1]*Delta)
         input('Press <ENTER> to continue\n')
 
         print("=" * 30)
         print("\n\n")
     # print("Smallest ratio of lme/opt", smallestRatio)
-    raise SystemExit(0)
+    # raise SystemExit(0)
 
 
     if state <= 4:
-        for (m, n) in ((i, j) for (i, j) in product(range(trying), range(trying))):
-            aa = m + 1
-            bb = n + 1
+        for (mm, nn) in ((i, j) for (i, j) in product(range(trying), range(trying))):
+            aa = mm + 1
+            bb = nn + 1
             print("success", aa, "failure", bb)
             obj[0][0] = aa / (aa + bb)
             obj[0][1] = aa / (aa + bb + 1)
@@ -695,11 +764,13 @@ if __name__ == '__main__':
                 if j == 5:
                     transition[str(i) + str(j)]['s'] = (aa + i) / (aa + bb + i + j)  # success
                     transition[str(i) + str(j)]['f'] = 0  # failure
-                    transition[str(i) + str(j)]['r'] = 1 - transition[str(i) + str(j)]['s'] - transition[str(i) + str(j)]['f']  # remain
+                    transition[str(i) + str(j)]['r'] = 1 - transition[str(i) + str(j)]['s'] - \
+                                                       transition[str(i) + str(j)]['f']  # remain
                 elif i == 5:
                     transition[str(i) + str(j)]['s'] = 0  # success
                     transition[str(i) + str(j)]['f'] = (bb + i) / (aa + bb + i + j)  # failure
-                    transition[str(i) + str(j)]['r'] = 1 - transition[str(i) + str(j)]['s'] - transition[str(i) + str(j)]['f']  # remain
+                    transition[str(i) + str(j)]['r'] = 1 - transition[str(i) + str(j)]['s'] - \
+                                                       transition[str(i) + str(j)]['f']  # remain
                 else:
                     transition[str(i) + str(j)]['s'] = (aa + i) / (aa + bb + i + j)  # success
                     transition[str(i) + str(j)]['f'] = 1 - transition[str(i) + str(j)]['s']  # failure
@@ -711,7 +782,7 @@ if __name__ == '__main__':
             slacks = np.ones((state, state)) * max(mu_, lambda_ / (1 - beta))
             # print("slacks\n", slacks, "\n", "-" * 20)
             print("obj\n", obj)
-            newSoln, res, objVal, mass = succfailOpt(n=len(obj), beta=beta, lambd=lambda_, mu=mu_,
+            newSoln, _, objVal, mass = succfailOpt(n=len(obj), beta=beta, lambd=lambda_, mu=mu_,
                                                      prevSoln=np.empty(0), usePrevSoln=False,
                                                      objective=obj, tr=transition, slacks=slacks)
             _, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta, lambd=lambda_,
@@ -764,7 +835,7 @@ if __name__ == '__main__':
     # for (i, j) in product(range(len(obj)), range(len(obj))):
     #     slacks[i][j] = 0 if obj[0][0] < obj[i][j] else mu_
     print("slacks\n", slacks, "\n", "-" * 20)
-    newSoln, res, objVal, mass = succfailOpt(n=len(obj), beta=beta, lambd=lambda_, mu=mu_,
+    newSoln, _, objVal, mass = succfailOpt(n=len(obj), beta=beta, lambd=lambda_, mu=mu_,
                                              prevSoln=np.empty(0), usePrevSoln=False,
                                              objective=obj, tr=transition, slacks=slacks)
     _, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta, lambd=lambda_,
@@ -772,8 +843,10 @@ if __name__ == '__main__':
     print("Diff in opt vs lme ", objVal - objVal_LME)
     print("\nOpt solution")
     print(newSoln)
-    raise SystemExit(0)
+    # raise SystemExit(0)
 
+
+def deneme():
     numState = 3
     workerArriveProbability = 0.1
     workerStayProbability = 0.95
