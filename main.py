@@ -9,7 +9,7 @@ from sys import exit
 
 from simEnvironments import *
 from simEnvironmentsLinear import *
-# from time import sleep
+from time import sleep
 
 pd.set_option('display.max_columns', None)
 
@@ -255,18 +255,22 @@ def vectorOfChange_succFail(rewards, transitions_, beta_val, l_state):
 
 
 if __name__ == '__main__':
+    # (a,b): if total transitions is x, then prior at least needs to be sth like (1, x-1)
+    # (a,b,c): if total transitions is x, then prior at least needs to be sth like (1, 1, 3x-2),
+    # e.g., 3 transition needs (1,1,7); 4 transition needs (1,1,10)
+
     all_start = time()
     # priors go from (1,1) to whatever
     # for success-fail model, (a,b) holds for a fails and b successes
-    numTrans = 5  # total number of ratings that can be received, or total number of transitions before reaching the end
-    rngStates = 5  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
+    numTrans = 3  # total number of ratings that can be received, or total number of transitions before reaching the end
+    rngStates = 4  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
     ratingsList = vectorOfMultipliers(rngStates)  # reward of a state is dot product of this and the state
     eligibleStates = np.zeros((int(1e4), rngStates))
 
-    numPriors = 3 # should be very small for the general case, >2 state dimensions.
+    numPriors = 15 # should be very small for the general case, >2 state dimensions.
     if rngStates == 2:
-        priorSuccess = int(np.sqrt(numPriors))
-        priorFail = int(np.sqrt(numPriors))
+        priorSuccess = numPriors
+        priorFail = numPriors
         priorList = np.zeros((int(priorSuccess * priorFail), rngStates))
         counter = 0
         for (m, n) in ((i, j) for (i, j) in product(range(priorFail), range(priorSuccess))):
@@ -274,8 +278,9 @@ if __name__ == '__main__':
             counter += 1
         priorList = priorList[:counter]
     elif rngStates > 2:
-        if numPriors > 4:
-            exit("numPriors is too large, are you sure to run this?? Exiting...")
+        if numPriors > 5 or numTrans > 6:
+            input("numPriors is " + str(numPriors) + " and numTrans is " + str(numTrans) +
+                  ". Are you sure to run this?? Press <ENTER> to continue\n")
         priorList = np.ones((np.power(numPriors + 1, rngStates), rngStates))
         range_list = [numPriors + 1] * rngStates
         counter = 0
@@ -293,6 +298,7 @@ if __name__ == '__main__':
     input('There are ' + str(counter) + ' priors. Press <ENTER> to continue\n')
     priorBasedOutcomes = np.ones((len(priorList), 2))  # first column for monotonicity, second for cumulative sum
                                                     # remains 1 if all is good for one prior
+    worksOut = {}
 
     countPriors = 0
     for prInd in range(len(priorList)):
@@ -317,10 +323,10 @@ if __name__ == '__main__':
                 worseThanZero -= 1
                 print("State l is", state_l, ", its rating", np.dot(transitions(eligibleStates[i]), ratingsList))
                 res = vectorOfChange_rating(eligibleStates, rngStates, numTrans + sum(prior), 0.8, state_l, prior)
-                if not res['cumulativeSumsPositive']:
-                    priorBasedOutcomes[countPriors, 1] = 0 # cumulative sums
                 if not res['monotoneM']:
                     priorBasedOutcomes[countPriors, 0] = 0 # monotonicity
+                if not res['cumulativeSumsPositive']:
+                    priorBasedOutcomes[countPriors, 1] = 0 # cumulative sums
                 if res['changeInReward'] < 0 or not res['cumulativeSumsPositive']:
                     print("Change in reward", str(res['changeInReward'])[:10], ", cumulative sums?", res['cumulativeSumsPositive'])
                     print("M is monotone?", res['monotoneM'])
@@ -330,15 +336,24 @@ if __name__ == '__main__':
                         print("rewards_ordered\n", res['rewards_ordered'])
                         exit("Negative change in reward.")
 
-                    print("Zero at", res['posOfZero'], ", col zero sum", str(res['colZeroSum'])[:6],
-                          "below zero", str(res['sumBelowZero'])[:7], "\nM vector dim", len(res['mVector']))
-                    print(res['mVector'])
-                    print("Rewards of states with negative change", res['rewardOfNegChangeStateAboveZero'],
-                          "\nRating of zero" , str(ratingOfZero)[:10], "\n")
+                    # print("Zero at", res['posOfZero'], ", col zero sum", str(res['colZeroSum'])[:6],
+                    #       "below zero", str(res['sumBelowZero'])[:7], "\nM vector dim", len(res['mVector']))
+                    # print(res['mVector'])
+                    # print("Rewards of states with negative change", res['rewardOfNegChangeStateAboveZero'],
+                    #       "\nRating of zero" , str(ratingOfZero)[:10], "\n")
         if worseThanZero != 0:
             print("PROBLEM! Didn't loop over all possible l states.")
             exit()
-
+        monotoneIf = False
+        if priorBasedOutcomes[countPriors, 0] == 1:
+            worksOut[str(prior)] = 'monotone'
+            print("MONOTONE!!!")
+            sleep(1)
+            monotoneIf = True
+        if priorBasedOutcomes[countPriors, 1] == 1 and monotoneIf:
+            worksOut[str(prior)] += ' & positiveCumulativeSums'
+        elif priorBasedOutcomes[countPriors, 1] == 1:
+            worksOut[str(prior)] = 'positiveCumulativeSums'
 
         countPriors += 1
         # input('Press <ENTER> to continue\n')
@@ -347,6 +362,8 @@ if __name__ == '__main__':
     print(priorBasedOutcomes)
     np.set_printoptions(**originalOptions)
     print(sum(priorBasedOutcomes))
+    print(sum(priorBasedOutcomes)/len(priorList))
+    print(worksOut)
     exit("Successfully finished. Took " + str(time() - all_start)[:6] + " seconds.")
 
 def tree():
