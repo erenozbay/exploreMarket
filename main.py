@@ -253,30 +253,26 @@ def vectorOfChange_succFail(rewards, transitions_, beta_val, l_state):
         cumsumCheck
 
 
-
-if __name__ == '__main__':
-    # (a,b): if total transitions is x, then prior at least needs to be sth like (1, x-1)
-    # (a,b,c): if total transitions is x, then prior at least needs to be sth like (1, 1, 3x-2),
-    # e.g., 3 transition needs (1,1,7); 4 transition needs (1,1,10)
-
+def mainSim(beta, numTrans, rngStates, numPriors):
     all_start = time()
-    # priors go from (1,1) to whatever
-    # for success-fail model, (a,b) holds for a fails and b successes
-    numTrans = 3  # total number of ratings that can be received, or total number of transitions before reaching the end
-    rngStates = 4  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
     ratingsList = vectorOfMultipliers(rngStates)  # reward of a state is dot product of this and the state
     eligibleStates = np.zeros((int(1e4), rngStates))
 
-    numPriors = 15 # should be very small for the general case, >2 state dimensions.
     if rngStates == 2:
         priorSuccess = numPriors
         priorFail = numPriors
         priorList = np.zeros((int(priorSuccess * priorFail), rngStates))
         counter = 0
         for (m, n) in ((i, j) for (i, j) in product(range(priorFail), range(priorSuccess))):
+            # if excludeSome:
+            #     if (m + 1 > 3) or ((m + 1 == 3) and (m + 1 + n + 1 >= 8)):
+            #         priorList[counter] = np.array([m + 1, n + 1])
+            #         counter += 1
+            # else:
             priorList[counter] = np.array([m + 1, n + 1])
             counter += 1
         priorList = priorList[:counter]
+        print('There are ' + str(counter) + ' priors.')
     elif rngStates > 2:
         if numPriors > 5 or numTrans > 6:
             input("numPriors is " + str(numPriors) + " and numTrans is " + str(numTrans) +
@@ -292,13 +288,15 @@ if __name__ == '__main__':
         priorList = priorList[:counter]
         # print(priorList, len(priorList))
         # exit()
+        input('There are ' + str(counter) + ' priors. Press <ENTER> to continue\n')
     else:
-        priorList = np.empty()
         exit("Need at least 2 for rngStates.")
-    input('There are ' + str(counter) + ' priors. Press <ENTER> to continue\n')
+
     priorBasedOutcomes = np.ones((len(priorList), 2))  # first column for monotonicity, second for cumulative sum
                                                     # remains 1 if all is good for one prior
     worksOut = {}
+    # priorList = np.array([[3, 4], [3, 4]])
+    # priorList = np.array([[1,1,1,1,26],[1,1,1,2,28]])
 
     countPriors = 0
     for prInd in range(len(priorList)):
@@ -314,21 +312,27 @@ if __name__ == '__main__':
                 worseThanZero += 1
             iter_ += 1
         eligibleStates = eligibleStates[:iter_, :]
-        print(eligibleStates, "\ntotal eligible state", iter_, "\nstates worse than 0:", worseThanZero, "\n\n")
+        # print(eligibleStates, "\ntotal eligible state", iter_, "\nstates worse than 0:", worseThanZero, "\n\n")
 
         state_l = np.zeros(rngStates)
         for i in range(1, len(eligibleStates)):  # skip state zero
             if np.dot(transitions(eligibleStates[i]), ratingsList) < ratingOfZero - 1e-15:
                 state_l = eligibleStates[i]
                 worseThanZero -= 1
-                print("State l is", state_l, ", its rating", np.dot(transitions(eligibleStates[i]), ratingsList))
-                res = vectorOfChange_rating(eligibleStates, rngStates, numTrans + sum(prior), 0.8, state_l, prior)
+                # print("State l is", state_l, ", its rating", np.dot(transitions(eligibleStates[i]), ratingsList))
+                res = vectorOfChange_rating(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior)
+                if rngStates == 2 and len(priorList) < 30:
+                    print("M vector", res['mVector'])
+                if res['sumBelowZero'] > 0:
+                    exit("below zero sums to " + str(res['sumBelowZero'])[:10])
                 if not res['monotoneM']:
                     priorBasedOutcomes[countPriors, 0] = 0 # monotonicity
                 if not res['cumulativeSumsPositive']:
                     priorBasedOutcomes[countPriors, 1] = 0 # cumulative sums
                 if res['changeInReward'] < 0 or not res['cumulativeSumsPositive']:
-                    print("Change in reward", str(res['changeInReward'])[:10], ", cumulative sums?", res['cumulativeSumsPositive'])
+                    print("Change in reward", str(res['changeInReward'])[:10], ", cumulative sums?",
+                          res['cumulativeSumsPositive'], ", below zero sums to", res['sumBelowZero'],
+                          ", col zero sums to", res['colZeroSum'])
                     print("M is monotone?", res['monotoneM'])
                     if res['changeInReward'] < 0:
                         print("Zero at", res['posOfZero'], ", col zero sums to", res['colZeroSum'], ",below zero to",
@@ -348,7 +352,7 @@ if __name__ == '__main__':
         if priorBasedOutcomes[countPriors, 0] == 1:
             worksOut[str(prior)] = 'monotone'
             print("MONOTONE!!!")
-            sleep(1)
+            sleep(0.6)
             monotoneIf = True
         if priorBasedOutcomes[countPriors, 1] == 1 and monotoneIf:
             worksOut[str(prior)] += ' & positiveCumulativeSums'
@@ -364,7 +368,35 @@ if __name__ == '__main__':
     print(sum(priorBasedOutcomes))
     print(sum(priorBasedOutcomes)/len(priorList))
     print(worksOut)
-    exit("Successfully finished. Took " + str(time() - all_start)[:6] + " seconds.")
+    print("Successfully finished. Took " + str(time() - all_start)[:6] + " seconds.")
+
+
+if __name__ == '__main__':
+    # (a,b): if total transitions is x, then prior at least needs to be sth like (1, x-1)
+    # (a,b,c): if total transitions is x, then prior at least needs to be sth like (1, 1, 3x-2),
+    # e.g., 3 transition needs (1,1,7); 4 transition needs (1,1,10)
+    # (a,b,c,d): if total transitions is x, then prior at least needs to be sth like (1, 1, 6x-3),
+    # e.g., 3 transition needs (1,1,1,15); 4 transition needs (1,1,1,21)
+    # (a,b,c,d,e): if total transitions is x, then prior at least needs to be sth like (1, 1, 9x-1),
+    # e.g., 3 transition needs (1,1,1,1,26); 4 transition needs (1,1,1,1,36)
+
+    # binary ratings OK: (beta 0.9, numTrans 65), (beta 0.8, numTrans 31), (beta 0.7, numTrans 20),
+    # (beta 0.6, numTrans 14), (beta 0.5, numTrans 10), (beta 0.4, numTrans 8), (beta 0.3, numTrans 6)
+    # (beta 0.2, numTrans 5), (beta 0.1, numTrans 3)
+    # tertiary ratings: (beta 0.9, numTrans 44), (beta 0.8, numTrans 20), (beta 0.7, numTrans 13) k (took 1hr),
+    # (beta 0.6, numTrans 9) k, (beta 0.5, numTrans 7) k, (beta 0.4, numTrans 6) k, (beta 0.3, numTrans 5) k
+    # (beta 0.2, numTrans 4) k, (beta 0.1, numTrans 3) k
+
+    beta_ = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
+    # priors go from (1,1) to whatever
+    # for success-fail model, (a,b) holds for a fails and b successes
+    numTrans_ = np.array([3, 4, 5, 6, 7, 9, 13, 20, 44])  # total number of ratings that can be received, or total number of transitions before reaching the end
+    rngStates_ = 3  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
+    numPriors_ = 10 # should be very small for the general case, >2 state dimensions.
+
+    for iij in range(len(beta_)):
+        mainSim(beta_[iij], numTrans_[iij], rngStates_, numPriors_)
+    exit()
 
 def tree():
     # tree
