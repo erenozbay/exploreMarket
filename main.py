@@ -145,6 +145,106 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
             'cumulativeSumsPositive': cumsumCheck, 'rewardOfNegChangeStateAboveZero': rewardOfNegChangeStateAboveZero}
 
 
+
+
+def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_state, prior_info):
+    # dim is the number of total eligible states
+    dim = len(listOfStates)
+    rewardBase = vectorOfMultipliers(rngStates_)
+    # get the rewards in
+    rewards = np.zeros(dim)
+    for ii in range(dim):
+        rewards[ii] =  np.dot(transitions(listOfStates[ii]), rewardBase) + (ii == 0) * 1e-12  # nudge zero just a little
+                                                                                             # to get the sort proper
+    rewards_ordered = -np.sort(-rewards)
+    indices_ordered = np.argsort(-rewards)  # to order states by decreasing rewards
+    # a dictionary where the key is the state (e.g., 00000) and value is its index in indices_ordered
+    statesAndIndices_ordered = {}
+    # stores a dictionary of multipliers of mass from state 0 and state l; first col state 0, second col state l
+    flows_memoized = {}
+    for ii in range(dim):
+        pos = ""
+        index = indices_ordered[ii]
+        for j in range(rngStates_):
+            pos += str(int(listOfStates[index][j]))
+            pos += "_" if j < (rngStates_ - 1) else ""
+        statesAndIndices_ordered[pos] = ii
+        # flows_memoized[pos] = np.zeros(2)
+        if index == 0:
+            rewards_ordered[ii] -= 1e-12  # remove the nudge at state zero
+            flows_memoized[pos] = np.zeros(2)
+            flows_memoized[pos][0] = 1
+        if sum(np.abs(listOfStates[index] - l_state)) == 0:
+            flows_memoized[pos] = np.zeros(2)
+            flows_memoized[pos][1] = 1
+
+    print("first time", flows_memoized)
+    # should start the construction of flows from 0
+    def getFlows(stateArray, beta_val_, memory):  # returns an array of flow multipliers
+        pos_ = ""
+        for kk_ in range(len(stateArray)):  # get the string of the state
+            pos_ += str(int(stateArray[kk_]))
+            pos_ += "_" if kk_ < (len(stateArray) - 1) else ""
+        if pos_ in memory:  # if exists, all good
+            print("I have", pos_, "it's", memory[pos_])
+            return memory[pos_]
+        else: # if not, figure out all states that feeds into this one and use them
+            print("I do not have", pos_, end = " so ")
+            # first, list all eligible states and call them all at once
+            allEligibleStates = np.zeros((len(stateArray), len(stateArray)))
+            eligibleStatesCounter = 0
+            pos_comes_from_list = []
+            for kk_ in range(len(stateArray)):
+                comes_from = deepcopy(stateArray)
+                pos_comes_from = ""
+                if stateArray[kk_] > prior_info[kk_]:
+                    comes_from[kk_] -= 1
+                    allEligibleStates[eligibleStatesCounter] = comes_from
+                    eligibleStatesCounter += 1
+                    for jj_ in range(len(stateArray)):  # get the string of the state
+                        pos_comes_from += str(int(comes_from[jj_]))
+                        pos_comes_from += "_" if jj_ < (len(stateArray) - 1) else ""
+                    pos_comes_from_list.append(pos_comes_from)
+            allEligibleStates = allEligibleStates[:eligibleStatesCounter, :]
+            print("I am getting", allEligibleStates)
+            trans_prob = np.zeros(len(allEligibleStates))
+            for kk_ in range(len(allEligibleStates)):
+                trans_prob[kk_] = transitions(allEligibleStates[kk_])[kk_]
+            trans_prob *= 1 / (1 - beta_val_) if sum(stateArray) == maxNumRat else 1
+            print("probabilities",trans_prob)
+            for ijk in range(eligibleStatesCounter):
+                memory[pos_comes_from_list[ijk]] = getFlows(allEligibleStates[ijk], beta_val_, memory)
+            someList = [trans_prob[ijk] * memory[pos_comes_from_list[ijk]] for
+                                    ijk in range(eligibleStatesCounter)]
+            return beta_val_ * sum(someList)
+
+
+            # print("I am getting", comes_from)
+            # trans_prob = transitions(comes_from)[kk_]
+            # trans_prob *= 1/(1-beta_val_) if sum(stateArray) == maxNumRat else 1
+            # pos_comes_from = ""
+            # for jj_ in range(len(stateArray)):  # get the string of the state
+            #     pos_comes_from += str(int(comes_from[jj_]))
+            #     pos_comes_from += "_" if jj_ < (len(stateArray) - 1) else ""
+
+            # memory[pos_comes_from] = getFlows(comes_from, beta_val_, memory)
+            # return trans_prob * beta_val_ * memory[pos_comes_from]
+
+
+    for ii in range(dim):
+        pos = ""
+        index = indices_ordered[ii]
+        for j in range(rngStates_):
+            pos += str(int(listOfStates[index][j]))
+            pos += "_" if j < (rngStates_ - 1) else ""
+        print("calling for", pos, "; my current list", flows_memoized)
+        flows_memoized[pos] = getFlows(listOfStates[index], beta_val, flows_memoized)
+
+    return flows_memoized
+
+
+
+
 def vectorOfChange_succFail(rewards, transitions_, beta_val, l_state):
     dim = int(len(rewards) * (len(rewards) + 1) / 2)  # instance dimension
     mat = np.zeros((dim, dim))  # M matrix, (I-A)^(-1)
@@ -253,10 +353,10 @@ def vectorOfChange_succFail(rewards, transitions_, beta_val, l_state):
         cumsumCheck
 
 
-def mainSim(beta, numTrans, rngStates, numPriors):
+def mainSim(beta, numTrans, rngStates, numPriors, size=1e5):
     all_start = time()
     ratingsList = vectorOfMultipliers(rngStates)  # reward of a state is dot product of this and the state
-    eligibleStates = np.zeros((int(1e4), rngStates))
+    eligibleStates = np.zeros((int(size), rngStates))
 
     if rngStates == 2:
         priorSuccess = numPriors
@@ -295,7 +395,7 @@ def mainSim(beta, numTrans, rngStates, numPriors):
     priorBasedOutcomes = np.ones((len(priorList), 2))  # first column for monotonicity, second for cumulative sum
                                                     # remains 1 if all is good for one prior
     worksOut = {}
-    # priorList = np.array([[3, 4], [3, 4]])
+    priorList = np.array([[3, 4], [3, 4]])
     # priorList = np.array([[1,1,1,1,26],[1,1,1,2,28]])
 
     countPriors = 0
@@ -312,15 +412,19 @@ def mainSim(beta, numTrans, rngStates, numPriors):
                 worseThanZero += 1
             iter_ += 1
         eligibleStates = eligibleStates[:iter_, :]
-        # print(eligibleStates, "\ntotal eligible state", iter_, "\nstates worse than 0:", worseThanZero, "\n\n")
+        print('There are ' + str(iter_) + ' eligible states and ' + str(worseThanZero) + ' states worse than zero.')
+        print(eligibleStates, "\ntotal eligible state", iter_, "\nstates worse than 0:", worseThanZero, "\n\n")
 
         state_l = np.zeros(rngStates)
         for i in range(1, len(eligibleStates)):  # skip state zero
             if np.dot(transitions(eligibleStates[i]), ratingsList) < ratingOfZero - 1e-15:
                 state_l = eligibleStates[i]
                 worseThanZero -= 1
-                # print("State l is", state_l, ", its rating", np.dot(transitions(eligibleStates[i]), ratingsList))
-                res = vectorOfChange_rating(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior)
+                print("State l is", state_l, ", its rating", np.dot(transitions(eligibleStates[i]), ratingsList))
+                res = vectorOfChange_noInverse(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior)
+                # res = vectorOfChange_rating(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior)
+                print(res)
+                exit()
                 if rngStates == 2 and len(priorList) < 30:
                     print("M vector", res['mVector'])
                 if res['sumBelowZero'] > 0:
@@ -383,19 +487,20 @@ if __name__ == '__main__':
     # binary ratings OK: (beta 0.9, numTrans 65), (beta 0.8, numTrans 31), (beta 0.7, numTrans 20),
     # (beta 0.6, numTrans 14), (beta 0.5, numTrans 10), (beta 0.4, numTrans 8), (beta 0.3, numTrans 6)
     # (beta 0.2, numTrans 5), (beta 0.1, numTrans 3)
-    # tertiary ratings: (beta 0.9, numTrans 44), (beta 0.8, numTrans 20), (beta 0.7, numTrans 13) k (took 1hr),
+    # tertiary ratings: (beta 0.9, numTrans 44), (beta 0.8, numTrans 20) 5 each way (125 priors) took 3 hrs - all ok,
+    # (beta 0.7, numTrans 13) k (took 1hr),
     # (beta 0.6, numTrans 9) k, (beta 0.5, numTrans 7) k, (beta 0.4, numTrans 6) k, (beta 0.3, numTrans 5) k
     # (beta 0.2, numTrans 4) k, (beta 0.1, numTrans 3) k
 
-    beta_ = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
+    beta_ = np.array([0.8])
     # priors go from (1,1) to whatever
     # for success-fail model, (a,b) holds for a fails and b successes
-    numTrans_ = np.array([3, 4, 5, 6, 7, 9, 13, 20, 44])  # total number of ratings that can be received, or total number of transitions before reaching the end
-    rngStates_ = 3  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
-    numPriors_ = 10 # should be very small for the general case, >2 state dimensions.
+    numTrans_ = np.array([3])  # total number of ratings that can be received, or total number of transitions before reaching the end
+    rngStates__ = 2  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
+    numPriors_ = 1 # should be very small for the general case, >2 state dimensions.
 
     for iij in range(len(beta_)):
-        mainSim(beta_[iij], numTrans_[iij], rngStates_, numPriors_)
+        mainSim(beta_[iij], numTrans_[iij], rngStates__, numPriors_, size=1e5)
     exit()
 
 def tree():
