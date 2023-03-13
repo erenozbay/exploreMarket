@@ -147,7 +147,7 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
 
 
 
-def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_state, prior_info):
+def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_state, prior_info, changeZero=1):
     # will need to be called with each different state l because flows are based on state zero and state l
     # dim is the number of total eligible states
     dim = len(listOfStates)
@@ -163,6 +163,7 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
     statesAndIndices_ordered = {}
     # stores a dictionary of multipliers of mass from state 0 and state l; first col state 0, second col state l
     flows_memoized = {}
+    state_l_local_index = dim
     for ii in range(dim):
         pos = ""
         index = indices_ordered[ii]
@@ -178,6 +179,7 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
         if sum(np.abs(listOfStates[index] - l_state)) == 0:
             flows_memoized[pos] = np.zeros(2)
             flows_memoized[pos][1] = 1
+            state_l_local_index = ii
 
     # print("first time", flows_memoized)
     # should start the construction of flows from 0, function with memoization
@@ -242,7 +244,36 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
     # sum of the flow multipliers from state 0 (plus one) to sum of the flow multipliers from state l (plus one)
     # negative of this ratio multiplied by the change in state 0 (1) gives the change in state l, which must be negative
 
+    # first, find the numerator and denominator
+    numerator = 0
+    denominator = 0
+    for ii in (ij for ij in range(dim) if ij <= state_l_local_index):
+        pos = ""
+        index = indices_ordered[ii]
+        for j in range(rngStates_):
+            pos += str(int(listOfStates[index][j]))
+            pos += "_" if j < (rngStates_ - 1) else ""
+        numerator += flows_memoized[pos][0]
+        denominator += flows_memoized[pos][1]
 
+    # then, modify the flows
+    modified_flows = deepcopy(flows_memoized)
+    change_state_l = -changeZero * numerator / denominator
+
+
+    # below here, I assume I fixed the change in state 0 to 1 (one) unit, and so all the first multipliers of each state
+    # has the inflow from state 0
+    # I can use rewards_ordered here with ii to figure out that particular state's contribution to the reward
+    rewardChange = 0
+    for ii in (ij for ij in range(dim) if ij < state_l_local_index):
+        pos = ""
+        index = indices_ordered[ii]
+        for j in range(rngStates_):
+            pos += str(int(listOfStates[index][j]))
+            pos += "_" if j < (rngStates_ - 1) else ""
+        rewardChange += (modified_flows[pos][0] - modified_flows[pos][1]) * rewards_ordered[ii]
+
+    # print(rewardChange)
     return flows_memoized
 
 
@@ -421,10 +452,10 @@ def mainSim(beta, numTrans, rngStates, numPriors, size=1e5):
         state_l = np.zeros(rngStates)
         for i in range(1, len(eligibleStates)):  # skip state zero
             if np.dot(transitions(eligibleStates[i]), ratingsList) < ratingOfZero - 1e-15:
-                state_l = eligibleStates[i]  #  np.array([4,5])  #
+                state_l = np.array([4,5])  #eligibleStates[i]  #
                 worseThanZero -= 1
                 print("State l is", state_l, ", its rating", np.dot(transitions(eligibleStates[i]), ratingsList))
-                res = vectorOfChange_noInverse(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior)
+                res = vectorOfChange_noInverse(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior, changeZero=1)
                 # res = vectorOfChange_rating(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior)
                 print(res)
                 exit()
