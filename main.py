@@ -148,6 +148,7 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
 
 
 def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_state, prior_info):
+    # will need to be called with each different state l because flows are based on state zero and state l
     # dim is the number of total eligible states
     dim = len(listOfStates)
     rewardBase = vectorOfMultipliers(rngStates_)
@@ -178,22 +179,23 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
             flows_memoized[pos] = np.zeros(2)
             flows_memoized[pos][1] = 1
 
-    print("first time", flows_memoized)
-    # should start the construction of flows from 0
+    # print("first time", flows_memoized)
+    # should start the construction of flows from 0, function with memoization
     def getFlows(stateArray, beta_val_, memory):  # returns an array of flow multipliers
         pos_ = ""
         for kk_ in range(len(stateArray)):  # get the string of the state
             pos_ += str(int(stateArray[kk_]))
             pos_ += "_" if kk_ < (len(stateArray) - 1) else ""
         if pos_ in memory:  # if exists, all good
-            print("I have", pos_, "it's", memory[pos_])
+            # print("I have", pos_, "it's", memory[pos_])
             return memory[pos_]
         else: # if not, figure out all states that feeds into this one and use them
-            print("I do not have", pos_, end = " so ")
+            # print("I do not have", pos_, end = " so ")
             # first, list all eligible states and call them all at once
             allEligibleStates = np.zeros((len(stateArray), len(stateArray)))
             eligibleStatesCounter = 0
             pos_comes_from_list = []
+            transitionFrom = []
             for kk_ in range(len(stateArray)):
                 comes_from = deepcopy(stateArray)
                 pos_comes_from = ""
@@ -205,40 +207,41 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
                         pos_comes_from += str(int(comes_from[jj_]))
                         pos_comes_from += "_" if jj_ < (len(stateArray) - 1) else ""
                     pos_comes_from_list.append(pos_comes_from)
+                    transitionFrom.append(kk_)
             allEligibleStates = allEligibleStates[:eligibleStatesCounter, :]
-            print("I am getting", allEligibleStates)
+            # print("I am getting", allEligibleStates)
             trans_prob = np.zeros(len(allEligibleStates))
             for kk_ in range(len(allEligibleStates)):
-                trans_prob[kk_] = transitions(allEligibleStates[kk_])[kk_]
+                trans_prob[kk_] = transitions(allEligibleStates[kk_])[int(transitionFrom[kk_])]
             trans_prob *= 1 / (1 - beta_val_) if sum(stateArray) == maxNumRat else 1
-            print("probabilities",trans_prob)
+            # print("probabilities",trans_prob)
             for ijk in range(eligibleStatesCounter):
                 memory[pos_comes_from_list[ijk]] = getFlows(allEligibleStates[ijk], beta_val_, memory)
             someList = [trans_prob[ijk] * memory[pos_comes_from_list[ijk]] for
                                     ijk in range(eligibleStatesCounter)]
             return beta_val_ * sum(someList)
 
-
-            # print("I am getting", comes_from)
-            # trans_prob = transitions(comes_from)[kk_]
-            # trans_prob *= 1/(1-beta_val_) if sum(stateArray) == maxNumRat else 1
-            # pos_comes_from = ""
-            # for jj_ in range(len(stateArray)):  # get the string of the state
-            #     pos_comes_from += str(int(comes_from[jj_]))
-            #     pos_comes_from += "_" if jj_ < (len(stateArray) - 1) else ""
-
-            # memory[pos_comes_from] = getFlows(comes_from, beta_val_, memory)
-            # return trans_prob * beta_val_ * memory[pos_comes_from]
-
-
+    # get all the states with flows from zero and l
+    # this must be linear in the number of states
     for ii in range(dim):
         pos = ""
         index = indices_ordered[ii]
         for j in range(rngStates_):
             pos += str(int(listOfStates[index][j]))
             pos += "_" if j < (rngStates_ - 1) else ""
-        print("calling for", pos, "; my current list", flows_memoized)
-        flows_memoized[pos] = getFlows(listOfStates[index], beta_val, flows_memoized)
+        if pos in flows_memoized:
+            print("no need to call for", pos, "; it is in my current list, which is", flows_memoized)
+        else:
+            print("calling for", pos, "; my current list", flows_memoized)
+            flows_memoized[pos] = getFlows(listOfStates[index], beta_val, flows_memoized)
+
+    # once again loop over all eligible states, i.e., no states strictly worse than state l,
+    # to obtain the relationship between state l and state 0 flows
+    # the total change must sum up to zero, hence having fixed the change in state 0 to 1,
+    # the change in state l is characterized fully - although it requires getting the ratio of
+    # sum of the flow multipliers from state 0 (plus one) to sum of the flow multipliers from state l (plus one)
+    # negative of this ratio multiplied by the change in state 0 (1) gives the change in state l, which must be negative
+
 
     return flows_memoized
 
@@ -418,7 +421,7 @@ def mainSim(beta, numTrans, rngStates, numPriors, size=1e5):
         state_l = np.zeros(rngStates)
         for i in range(1, len(eligibleStates)):  # skip state zero
             if np.dot(transitions(eligibleStates[i]), ratingsList) < ratingOfZero - 1e-15:
-                state_l = eligibleStates[i]
+                state_l = eligibleStates[i]  #  np.array([4,5])  #
                 worseThanZero -= 1
                 print("State l is", state_l, ", its rating", np.dot(transitions(eligibleStates[i]), ratingsList))
                 res = vectorOfChange_noInverse(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior)
