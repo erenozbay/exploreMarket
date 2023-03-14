@@ -48,7 +48,8 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
         # nudge zero just a little to get the sort proper;
         # also add a little more to the earlier states to manage cases where
         # there are states with the same rewards downstream
-        rewards[ii] += (ii == 0) * 1e-8 + (ii > 0) * 1e-10 / sum(listOfStates[ii])
+        rewards[ii] += (ii == 0) * 1e-8 + \
+                       (ii > 0) * 1e-10 / np.dot(listOfStates[ii], np.arange(1, rngStates_ + 1)) # sum(listOfStates[ii])
 
 
     rewards_ordered = -np.sort(-rewards)
@@ -63,7 +64,8 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
             pos += "_" if j < (rngStates_ - 1) else ""
         statesAndIndices_ordered[pos] = ii
         # remove the nudges
-        rewards_ordered[ii] -= (index == 0) * 1e-8 + (index > 0) * 1e-10 / sum(listOfStates[index])
+        rewards_ordered[ii] -= (index == 0) * 1e-8 + \
+                               (index > 0) * 1e-10 / np.dot(listOfStates[index], np.arange(1, rngStates_ + 1)) # sum(listOfStates[index])
 
     # transitions use state values (and the prior through the rewards)
     # build the A matrix column by column
@@ -164,7 +166,8 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
         # nudge zero just a little to get the sort proper;
         # also add a little more to the earlier states to manage cases where
         # there are states with the same rewards downstream
-        rewards[ii] += (ii == 0) * 1e-8 + (ii > 0) * 1e-10 / sum(listOfStates[ii])
+        rewards[ii] += (ii == 0) * 1e-8 + \
+                       (ii > 0) * 1e-10 / np.dot(listOfStates[ii], np.arange(1, rngStates_ + 1)) # sum(listOfStates[ii])
 
     rewards_ordered = -np.sort(-rewards)
     indices_ordered = np.argsort(-rewards)  # to order states by decreasing rewards
@@ -182,7 +185,8 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
             pos += "_" if j < (rngStates_ - 1) else ""
         statesAndIndices_ordered[pos] = ii
         # remove the nudges
-        rewards_ordered[ii] -= (index == 0) * 1e-8 + (index > 0) * 1e-10 / sum(listOfStates[index])
+        rewards_ordered[ii] -= (index == 0) * 1e-8 + \
+                               (index > 0) * 1e-10 / np.dot(listOfStates[index], np.arange(1, rngStates_ + 1)) # sum(listOfStates[index])
 
         if index == 0:
             flows_memoized[pos] = np.zeros(2)
@@ -192,6 +196,7 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
             flows_memoized[pos][1] = 1
             state_l_local_index = ii
             reward_state_l = np.dot(transitions(l_state), rewardBase)
+            memoizableStates = statesAndIndices_ordered
 
     # print("first time", flows_memoized)
     # should start the construction of flows from 0, function with memoization
@@ -216,8 +221,19 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
                 pos_comes_from = ""
                 if stateArray[kk_] > prior_info[kk_]:
                     comes_from[kk_] -= 1
+
+                    # for jj_ in range(len(stateArray)):  # get the string of the state
+                    #     pos_comes_from += str(int(comes_from[jj_]))
+                    #     pos_comes_from += "_" if jj_ < (len(stateArray) - 1) else ""
+                    # # check if it's okay to work with that and go on if so
+                    # if pos_comes_from in memoizableStates:
+                    #     allEligibleStates[eligibleStatesCounter] = comes_from
+                    #     eligibleStatesCounter += 1
+                    #     pos_comes_from_list.append(pos_comes_from)
+                    #     transitionFrom.append(kk_)
+
                     if np.dot(transitions(comes_from), rewardBase) > reward_state_l or \
-                            (np.dot(transitions(comes_from), rewardBase) >= reward_state_l and
+                            (np.dot(transitions(comes_from), rewardBase) == reward_state_l and
                             sum(comes_from) <= sum(l_state)):  # this is tricky, I need to eliminate flows from states
                         # with the same reward as state l but downstream of state l
                         allEligibleStates[eligibleStatesCounter] = comes_from
@@ -227,6 +243,9 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
                             pos_comes_from += "_" if jj_ < (len(stateArray) - 1) else ""
                         pos_comes_from_list.append(pos_comes_from)
                         transitionFrom.append(kk_)
+
+
+
             allEligibleStates = allEligibleStates[:eligibleStatesCounter, :]
             # print("I am getting", allEligibleStates)
             trans_prob = np.zeros(len(allEligibleStates))
@@ -260,7 +279,7 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
             if pos not in flows_memoized:
                 flows_memoized[pos] = getFlows(listOfStates[index], beta_val, flows_memoized)
 
-            # print('original flow of', pos, ':', flows_memoized[pos])
+            print('original flow of', pos, ':', flows_memoized[pos])
     # once again loop over all eligible states, i.e., no states strictly worse than state l,
     # to obtain the relationship between state l and state 0 flows
     # the total change must sum up to zero, hence having fixed the change in state 0 to 1,
@@ -580,9 +599,9 @@ if __name__ == '__main__':
     beta_ = np.array([0.8])
     # priors go from (1,1) to whatever
     # for success-fail model, (a,b) holds for a fails and b successes
-    numTrans_ = np.array([8])  # total number of ratings that can be received, or total number of transitions before reaching the end
-    rngStates__ = 2  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
-    numPriors_ = 4 # should be very small for the general case, >2 state dimensions.
+    numTrans_ = np.array([3])  # total number of ratings that can be received, or total number of transitions before reaching the end
+    rngStates__ = 3  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
+    numPriors_ = 3 # should be very small for the general case, >2 state dimensions.
 
     for iij in range(len(beta_)):
         mainSim(beta_[iij], numTrans_[iij], rngStates__, numPriors_, size=1e5)
