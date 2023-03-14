@@ -176,7 +176,8 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
     # stores a dictionary of multipliers of mass from state 0 and state l; first col state 0, second col state l
     flows_memoized = {}
     state_l_local_index = dim
-    reward_state_l = 0
+    reward_state_l = np.dot(transitions(l_state), rewardBase)
+    keepAdding = True
     for ii in range(dim):
         pos = ""
         index = indices_ordered[ii]
@@ -187,7 +188,8 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
         # remove the nudges
         rewards_ordered[ii] -= (index == 0) * 1e-8 + \
                                (index > 0) * 1e-10 / np.dot(listOfStates[index], np.arange(1, rngStates_ + 1)) # sum(listOfStates[index])
-
+        if keepAdding: # and rewards_ordered[ii] >= reward_state_l:
+            memoizableStates = deepcopy(statesAndIndices_ordered)
         if index == 0:
             flows_memoized[pos] = np.zeros(2)
             flows_memoized[pos][0] = 1
@@ -195,8 +197,7 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
             flows_memoized[pos] = np.zeros(2)
             flows_memoized[pos][1] = 1
             state_l_local_index = ii
-            reward_state_l = np.dot(transitions(l_state), rewardBase)
-            memoizableStates = statesAndIndices_ordered
+            keepAdding = False
 
     # print("first time", flows_memoized)
     # should start the construction of flows from 0, function with memoization
@@ -222,27 +223,27 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
                 if stateArray[kk_] > prior_info[kk_]:
                     comes_from[kk_] -= 1
 
-                    # for jj_ in range(len(stateArray)):  # get the string of the state
-                    #     pos_comes_from += str(int(comes_from[jj_]))
-                    #     pos_comes_from += "_" if jj_ < (len(stateArray) - 1) else ""
-                    # # check if it's okay to work with that and go on if so
-                    # if pos_comes_from in memoizableStates:
-                    #     allEligibleStates[eligibleStatesCounter] = comes_from
-                    #     eligibleStatesCounter += 1
-                    #     pos_comes_from_list.append(pos_comes_from)
-                    #     transitionFrom.append(kk_)
-
-                    if np.dot(transitions(comes_from), rewardBase) > reward_state_l or \
-                            (np.dot(transitions(comes_from), rewardBase) == reward_state_l and
-                            sum(comes_from) <= sum(l_state)):  # this is tricky, I need to eliminate flows from states
-                        # with the same reward as state l but downstream of state l
+                    for jj_ in range(len(stateArray)):  # get the string of the state
+                        pos_comes_from += str(int(comes_from[jj_]))
+                        pos_comes_from += "_" if jj_ < (len(stateArray) - 1) else ""
+                    # check if it's okay to work with that and go on if so
+                    if pos_comes_from in memoizableStates:
                         allEligibleStates[eligibleStatesCounter] = comes_from
                         eligibleStatesCounter += 1
-                        for jj_ in range(len(stateArray)):  # get the string of the state
-                            pos_comes_from += str(int(comes_from[jj_]))
-                            pos_comes_from += "_" if jj_ < (len(stateArray) - 1) else ""
                         pos_comes_from_list.append(pos_comes_from)
                         transitionFrom.append(kk_)
+
+                    # if np.dot(transitions(comes_from), rewardBase) > reward_state_l or \
+                    #         (np.dot(transitions(comes_from), rewardBase) == reward_state_l and
+                    #         sum(comes_from) <= sum(l_state)):  # this is tricky, I need to eliminate flows from states
+                    #     # with the same reward as state l but downstream of state l
+                    #     allEligibleStates[eligibleStatesCounter] = comes_from
+                    #     eligibleStatesCounter += 1
+                    #     for jj_ in range(len(stateArray)):  # get the string of the state
+                    #         pos_comes_from += str(int(comes_from[jj_]))
+                    #         pos_comes_from += "_" if jj_ < (len(stateArray) - 1) else ""
+                    #     pos_comes_from_list.append(pos_comes_from)
+                    #     transitionFrom.append(kk_)
 
 
 
@@ -318,7 +319,7 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
                 pos += str(int(listOfStates[index][j]))
                 pos += "_" if j < (rngStates_ - 1) else ""
             modified_flows[pos][1] = change_state_l
-        print("modified flow for",pos,"is",modified_flows[pos])
+        # print("modified flow for",pos,"is",modified_flows[pos])
 
 
     # below here, I assume I fixed the change in state 0 to 1 (one) unit, and so all the first multipliers of each state
