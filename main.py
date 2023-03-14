@@ -44,8 +44,12 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
 
     rewards = np.zeros(dim)
     for ii in range(dim):
-        rewards[ii] =  np.dot(transitions(listOfStates[ii]), rewardBase) + (ii == 0) * 1e-8  # nudge zero just a little
-                                                                                             # to get the sort proper
+        rewards[ii] = np.dot(transitions(listOfStates[ii]), rewardBase)
+        # nudge zero just a little to get the sort proper;
+        # also add a little more to the earlier states to manage cases where
+        # there are states with the same rewards downstream
+        rewards[ii] += (ii == 0) * 1e-8 + (ii > 0) * 1e-10 / sum(listOfStates[ii])
+
 
     rewards_ordered = -np.sort(-rewards)
     indices_ordered = np.argsort(-rewards)  # to order states by decreasing rewards
@@ -58,8 +62,8 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
             pos += str(int(listOfStates[index][j]))
             pos += "_" if j < (rngStates_ - 1) else ""
         statesAndIndices_ordered[pos] = ii
-        if index == 0:
-            rewards_ordered[ii] -= 1e-8  # remove the nudge at state zero
+        # remove the nudges
+        rewards_ordered[ii] -= (index == 0) * 1e-8 + (index > 0) * 1e-10 / sum(listOfStates[index])
 
     # transitions use state values (and the prior through the rewards)
     # build the A matrix column by column
@@ -124,6 +128,7 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
 
     if not cumsumCheck and monotone:
         print(mVector)  # this shouldn't be printed at all
+        exit("This shouldn't be printed at all.")
 
     # if not cumsumCheck:
     #     print(mVector)
@@ -137,11 +142,11 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
             rewardHere = rewards_ordered[el]
             rewardOfNegChangeStateAboveZero = np.append(rewardOfNegChangeStateAboveZero, rewardHere)
     rewardOfNegChangeStateAboveZero = rewardOfNegChangeStateAboveZero[1:]
-
+    print(statesAndIndices_ordered)
     return {'mVector': mVector, 'colZeroSum': sumZero, 'monotoneM': monotone,
             'posOfZero': posOfZero, 'positiveChangeInReward': positiveChangeInReward,
             'rewards_ordered': rewards_ordered, 'changeInReward': change,
-            'sumBelowZero': sumToNeg, 'mMat': mMat, 'truncatedA': mat2,
+            'sumBelowZero': sumToNeg, 'mMat': mMat, 'truncatedA': mat2, 'changeInZero': mVector[posOfZero],
             'cumulativeSumsPositive': cumsumCheck, 'rewardOfNegChangeStateAboveZero': rewardOfNegChangeStateAboveZero}
 
 
@@ -155,8 +160,12 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
     # get the rewards in
     rewards = np.zeros(dim)
     for ii in range(dim):
-        rewards[ii] =  np.dot(transitions(listOfStates[ii]), rewardBase) + (ii == 0) * 1e-12  # nudge zero just a little
-                                                                                             # to get the sort proper
+        rewards[ii] =  np.dot(transitions(listOfStates[ii]), rewardBase)
+        # nudge zero just a little to get the sort proper;
+        # also add a little more to the earlier states to manage cases where
+        # there are states with the same rewards downstream
+        rewards[ii] += (ii == 0) * 1e-8 + (ii > 0) * 1e-10 / sum(listOfStates[ii])
+
     rewards_ordered = -np.sort(-rewards)
     indices_ordered = np.argsort(-rewards)  # to order states by decreasing rewards
     # a dictionary where the key is the state (e.g., 00000) and value is its index in indices_ordered
@@ -164,6 +173,7 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
     # stores a dictionary of multipliers of mass from state 0 and state l; first col state 0, second col state l
     flows_memoized = {}
     state_l_local_index = dim
+    reward_state_l = 0
     for ii in range(dim):
         pos = ""
         index = indices_ordered[ii]
@@ -171,15 +181,17 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
             pos += str(int(listOfStates[index][j]))
             pos += "_" if j < (rngStates_ - 1) else ""
         statesAndIndices_ordered[pos] = ii
-        # flows_memoized[pos] = np.zeros(2)
+        # remove the nudges
+        rewards_ordered[ii] -= (index == 0) * 1e-8 + (index > 0) * 1e-10 / sum(listOfStates[index])
+
         if index == 0:
-            rewards_ordered[ii] -= 1e-12  # remove the nudge at state zero
             flows_memoized[pos] = np.zeros(2)
             flows_memoized[pos][0] = 1
         if sum(np.abs(listOfStates[index] - l_state)) == 0:
             flows_memoized[pos] = np.zeros(2)
             flows_memoized[pos][1] = 1
             state_l_local_index = ii
+            reward_state_l = np.dot(transitions(l_state), rewardBase)
 
     # print("first time", flows_memoized)
     # should start the construction of flows from 0, function with memoization
@@ -188,6 +200,7 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
         for kk_ in range(len(stateArray)):  # get the string of the state
             pos_ += str(int(stateArray[kk_]))
             pos_ += "_" if kk_ < (len(stateArray) - 1) else ""
+        # print("I need", pos_)
         if pos_ in memory:  # if exists, all good
             # print("I have", pos_, "it's", memory[pos_])
             return memory[pos_]
@@ -203,24 +216,29 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
                 pos_comes_from = ""
                 if stateArray[kk_] > prior_info[kk_]:
                     comes_from[kk_] -= 1
-                    allEligibleStates[eligibleStatesCounter] = comes_from
-                    eligibleStatesCounter += 1
-                    for jj_ in range(len(stateArray)):  # get the string of the state
-                        pos_comes_from += str(int(comes_from[jj_]))
-                        pos_comes_from += "_" if jj_ < (len(stateArray) - 1) else ""
-                    pos_comes_from_list.append(pos_comes_from)
-                    transitionFrom.append(kk_)
+                    if np.dot(transitions(comes_from), rewardBase) > reward_state_l or \
+                            (np.dot(transitions(comes_from), rewardBase) >= reward_state_l and
+                            sum(comes_from) <= sum(l_state)):  # this is tricky, I need to eliminate flows from states
+                        # with the same reward as state l but downstream of state l
+                        allEligibleStates[eligibleStatesCounter] = comes_from
+                        eligibleStatesCounter += 1
+                        for jj_ in range(len(stateArray)):  # get the string of the state
+                            pos_comes_from += str(int(comes_from[jj_]))
+                            pos_comes_from += "_" if jj_ < (len(stateArray) - 1) else ""
+                        pos_comes_from_list.append(pos_comes_from)
+                        transitionFrom.append(kk_)
             allEligibleStates = allEligibleStates[:eligibleStatesCounter, :]
             # print("I am getting", allEligibleStates)
             trans_prob = np.zeros(len(allEligibleStates))
             for kk_ in range(len(allEligibleStates)):
                 trans_prob[kk_] = transitions(allEligibleStates[kk_])[int(transitionFrom[kk_])]
-            trans_prob *= 1 / (1 - beta_val_) if sum(stateArray) == maxNumRat else 1
+            trans_prob /= (1 - beta_val_) if sum(stateArray) == maxNumRat else 1
             # print("probabilities",trans_prob)
             for ijk in range(eligibleStatesCounter):
                 memory[pos_comes_from_list[ijk]] = getFlows(allEligibleStates[ijk], beta_val_, memory)
             someList = [trans_prob[ijk] * memory[pos_comes_from_list[ijk]] for
                                     ijk in range(eligibleStatesCounter)]
+
             return beta_val_ * sum(someList)
 
     # get all the states with flows from zero and l
@@ -228,15 +246,21 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
     for ii in range(dim):
         pos = ""
         index = indices_ordered[ii]
-        for j in range(rngStates_):
-            pos += str(int(listOfStates[index][j]))
-            pos += "_" if j < (rngStates_ - 1) else ""
-        if pos in flows_memoized:
-            print("no need to call for", pos, "; it is in my current list, which is", flows_memoized)
-        else:
-            print("calling for", pos, "; my current list", flows_memoized)
-            flows_memoized[pos] = getFlows(listOfStates[index], beta_val, flows_memoized)
+        if rewards_ordered[ii] >= reward_state_l:
+        # if (rewards_ordered[ii] > reward_state_l) or ((rewards_ordered[ii] >= reward_state_l)
+        #                                               and (sum(listOfStates[index]) < sum(l_state))):
+            for j in range(rngStates_):
+                pos += str(int(listOfStates[index][j]))
+                pos += "_" if j < (rngStates_ - 1) else ""
+            # if pos in flows_memoized:
+            #     print("no need to call for", pos, "; it is in my current list, which is", flows_memoized)
+            # else:
+            #     print("calling for", pos, "; my current list", flows_memoized)
+            #     flows_memoized[pos] = getFlows(listOfStates[index], beta_val, flows_memoized)
+            if pos not in flows_memoized:
+                flows_memoized[pos] = getFlows(listOfStates[index], beta_val, flows_memoized)
 
+            # print('original flow of', pos, ':', flows_memoized[pos])
     # once again loop over all eligible states, i.e., no states strictly worse than state l,
     # to obtain the relationship between state l and state 0 flows
     # the total change must sum up to zero, hence having fixed the change in state 0 to 1,
@@ -255,26 +279,43 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
             pos += "_" if j < (rngStates_ - 1) else ""
         numerator += flows_memoized[pos][0]
         denominator += flows_memoized[pos][1]
+    # print("numerator", numerator, "denominator", denominator)
 
     # then, modify the flows
     modified_flows = deepcopy(flows_memoized)
-    change_state_l = -changeZero * numerator / denominator
+    change_state_l = -changeZero * numerator / denominator # if sum(l_state) < maxNumRat else -1
+    # print("change_state_l", change_state_l)
+    for ii in (ij for ij in range(dim) if ij <= state_l_local_index):
+        pos = ""
+        index = indices_ordered[ii]
+        if ii < state_l_local_index:
+            for j in range(rngStates_):
+                pos += str(int(listOfStates[index][j]))
+                pos += "_" if j < (rngStates_ - 1) else ""
+            modified_flows[pos][1] *= change_state_l if modified_flows[pos][1] > 0 else 1
+            modified_flows[pos][0] *= changeZero
+        else:
+            for j in range(rngStates_):
+                pos += str(int(listOfStates[index][j]))
+                pos += "_" if j < (rngStates_ - 1) else ""
+            modified_flows[pos][1] = change_state_l
+        print("modified flow for",pos,"is",modified_flows[pos])
 
 
     # below here, I assume I fixed the change in state 0 to 1 (one) unit, and so all the first multipliers of each state
     # has the inflow from state 0
     # I can use rewards_ordered here with ii to figure out that particular state's contribution to the reward
     rewardChange = 0
-    for ii in (ij for ij in range(dim) if ij < state_l_local_index):
+    for ii in (ij for ij in range(dim) if ij <= state_l_local_index):
         pos = ""
         index = indices_ordered[ii]
         for j in range(rngStates_):
             pos += str(int(listOfStates[index][j]))
             pos += "_" if j < (rngStates_ - 1) else ""
-        rewardChange += (modified_flows[pos][0] - modified_flows[pos][1]) * rewards_ordered[ii]
-
-    # print(rewardChange)
-    return flows_memoized
+        # print("pos", pos, "flow", sum(modified_flows[pos]))
+        rewardChange += sum(modified_flows[pos]) * rewards_ordered[ii]
+    # print("indices ordered", indices_ordered)
+    return {'modifiedFlows': modified_flows, 'rewardChange': rewardChange}
 
 
 
@@ -429,7 +470,7 @@ def mainSim(beta, numTrans, rngStates, numPriors, size=1e5):
     priorBasedOutcomes = np.ones((len(priorList), 2))  # first column for monotonicity, second for cumulative sum
                                                     # remains 1 if all is good for one prior
     worksOut = {}
-    priorList = np.array([[3, 4], [3, 4]])
+    # priorList = np.array([[3, 4], [3, 4]])
     # priorList = np.array([[1,1,1,1,26],[1,1,1,2,28]])
 
     countPriors = 0
@@ -449,18 +490,28 @@ def mainSim(beta, numTrans, rngStates, numPriors, size=1e5):
         print('There are ' + str(iter_) + ' eligible states and ' + str(worseThanZero) + ' states worse than zero.')
         print(eligibleStates, "\ntotal eligible state", iter_, "\nstates worse than 0:", worseThanZero, "\n\n")
 
-        state_l = np.zeros(rngStates)
+        # state_l = np.zeros(rngStates)
         for i in range(1, len(eligibleStates)):  # skip state zero
             if np.dot(transitions(eligibleStates[i]), ratingsList) < ratingOfZero - 1e-15:
-                state_l = np.array([4,5])  #eligibleStates[i]  #
+                state_l = eligibleStates[i] ## np.array([4,5])  #
                 worseThanZero -= 1
                 print("State l is", state_l, ", its rating", np.dot(transitions(eligibleStates[i]), ratingsList))
-                res = vectorOfChange_noInverse(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior, changeZero=1)
-                # res = vectorOfChange_rating(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior)
-                print(res)
-                exit()
-                if rngStates == 2 and len(priorList) < 30:
+                res = vectorOfChange_rating(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior)
+                resNoInv = vectorOfChange_noInverse(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l,
+                                                    prior, changeZero=res['changeInZero'])
+                print("Reward change from the inverse thing", res['changeInReward'], "change in zero", res['changeInZero'])
+                print("Reward change without inverting is", resNoInv['rewardChange'], "difference is",
+                      round(res['changeInReward']-resNoInv['rewardChange'], 20))
+                # print("Modified flows are")
+                # print(resNoInv['modifiedFlows'])
+                # exit()
+                # if rngStates == 2 and len(priorList) < 30:
+                #     print("M vector", res['mVector'])
+                if np.abs(res['changeInReward']-resNoInv['rewardChange']) > 1e-10:
+                    print("Modified flows are")
+                    print(resNoInv['modifiedFlows'])
                     print("M vector", res['mVector'])
+                    exit("Things didn't work.")
                 if res['sumBelowZero'] > 0:
                     exit("below zero sums to " + str(res['sumBelowZero'])[:10])
                 if not res['monotoneM']:
@@ -490,7 +541,7 @@ def mainSim(beta, numTrans, rngStates, numPriors, size=1e5):
         if priorBasedOutcomes[countPriors, 0] == 1:
             worksOut[str(prior)] = 'monotone'
             print("MONOTONE!!!")
-            sleep(0.6)
+            # sleep(0.6)
             monotoneIf = True
         if priorBasedOutcomes[countPriors, 1] == 1 and monotoneIf:
             worksOut[str(prior)] += ' & positiveCumulativeSums'
@@ -529,9 +580,9 @@ if __name__ == '__main__':
     beta_ = np.array([0.8])
     # priors go from (1,1) to whatever
     # for success-fail model, (a,b) holds for a fails and b successes
-    numTrans_ = np.array([3])  # total number of ratings that can be received, or total number of transitions before reaching the end
+    numTrans_ = np.array([8])  # total number of ratings that can be received, or total number of transitions before reaching the end
     rngStates__ = 2  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
-    numPriors_ = 1 # should be very small for the general case, >2 state dimensions.
+    numPriors_ = 4 # should be very small for the general case, >2 state dimensions.
 
     for iij in range(len(beta_)):
         mainSim(beta_[iij], numTrans_[iij], rngStates__, numPriors_, size=1e5)
