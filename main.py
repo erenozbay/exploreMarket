@@ -5,10 +5,12 @@
 from sys import exit
 # from copy import deepcopy
 # from scipy.stats import dirichlet
-# import pandas as pd
+
+from datetime import datetime
 
 from simEnvironments import *
 from simEnvironmentsLinear import *
+from supportModules import *
 from time import sleep
 
 pd.set_option('display.max_columns', None)
@@ -338,8 +340,6 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
     return {'modifiedFlows': modified_flows, 'rewardChange': rewardChange}
 
 
-
-
 def vectorOfChange_succFail(rewards, transitions_, beta_val, l_state):
     dim = int(len(rewards) * (len(rewards) + 1) / 2)  # instance dimension
     mat = np.zeros((dim, dim))  # M matrix, (I-A)^(-1)
@@ -527,6 +527,7 @@ def mainSim(beta, numTrans, rngStates, numPriors, size=1e5):
                 # exit()
                 # if rngStates == 2 and len(priorList) < 30:
                 #     print("M vector", res['mVector'])
+                # if resNoInv['rewardChange'] < 1e-10:
                 if np.abs(res['changeInReward']-resNoInv['rewardChange']) > 1e-10:
                     print("Modified flows are")
                     print(resNoInv['modifiedFlows'])
@@ -581,6 +582,77 @@ def mainSim(beta, numTrans, rngStates, numPriors, size=1e5):
 
 
 if __name__ == '__main__':
+
+    # plot
+    # plotRatios(7)  # argument is either 7 or 9, for \lambda = (1-\beta) / 0.7 or divided by 0.9, respectively
+    # exit()
+
+    beta_ = np.array([0.9])#, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
+    mu_ = 1
+
+    # for success-fail model, (a,b) holds for a fails and b successes
+    # numTrans_ = np.array([3, 5, 6, 8, 10, 14, 20, 31, 65])  # total no. of transitions before reaching the end
+    numTrans_ = np.array([21]) #2, 3, 4, 6, 7, 10, 13, 21, 44])  # smaller epsilon, shorter horizons, larger error room
+    rngStates__ = 2  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
+    numPriors_ = 10  # should be very small for the general case, >2 state dimensions.
+
+    listOfRatios = np.zeros(int(numPriors_ * numPriors_ * len(beta_)))
+    counter = 0
+    start_time = time()
+    for st in range(len(beta_)):
+        state = numTrans_[st] + 1
+        lambda_ = (1 - beta_[st]) / 0.9
+        obj = np.zeros((state, state))
+        transition = {}
+
+        for (m, n) in ((i, j) for (i, j) in product(range(numPriors_), range(numPriors_))):
+            succ = m + 1
+            fail = n + 1
+            print("Prior is (" + str(succ) + ", " + str(fail) + "). No. transitions " + str(state - 1) + ".")
+            for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
+                obj[i][j] = (succ + i) / (succ + fail + i + j)
+                transition[str(i) + "_" + str(j)] = {}
+                if i + j < (state - 1):
+                    transition[str(i) + "_" + str(j)]['s'] = obj[i][j]  # success
+                    transition[str(i) + "_" + str(j)]['f'] = 1 - transition[str(i) + "_" + str(j)]['s']  # failure
+                    transition[str(i) + "_" + str(j)]['r'] = 0  # remain
+                else:
+                    transition[str(i) + "_" + str(j)]['s'] = 0  # success
+                    transition[str(i) + "_" + str(j)]['f'] = 0  # failure
+                    transition[str(i) + "_" + str(j)]['r'] = 1
+                # print(i, j, "", transition[str(i) + "_" + str(j)].values())
+                if sum(transition[str(i) + "_" + str(j)].values()) != 1:
+                    exit("problem in (" + str(i) + ", " + str(j) + ")")
+
+            slacks = np.ones((state, state)) * max(mu_, lambda_ / (1 - beta_[st]))
+            # print("objective\n", obj)
+
+            newSoln, _, objVal, mass = succfailOpt(n=len(obj), beta=beta_[st], lambd=lambda_, mu=mu_,
+                                                   prevSoln=np.empty(0), usePrevSoln=False,
+                                                   objective=obj, tr=transition, slacks=slacks, printResults=False)
+            LME_soln, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta_[st], lambd=lambda_,
+                                                            mu=min(mu_, mass), objective=obj, tr=transition,
+                                                            bw="worst", printResults=False)
+            listOfRatios[counter] = objVal_LME / objVal
+            counter += 1
+            print("\nRatio is " + str(objVal_LME / objVal)[:7] + " at " + str(state - 1) + " instance size.", end=" ")
+            print("Prior was (" + str(succ) + ", " + str(fail) + ").")
+            print("Lambda: " + str(lambda_)[:5] + ", and ratio of mu/lambda: " + str(mu_/lambda_)[:5] + ".")
+            print("ratio of mu/lambda * (1-beta): " + str(mu_/lambda_ * (1 - beta_[st]))[:5] +
+                  ", beta: " + str(beta_[st])[:5] + ", (1-beta): " + str(1 - beta_[st])[:5] +
+                  ". Took " + str(time() - start_time)[:4] + " seconds.\n")
+            if counter % 5 == 0:
+                print("Recorded results so far at " + str(datetime.now()))
+                pd.DataFrame(listOfRatios).to_csv("LMEratios.csv", index=False, header=False)
+            # if objVal_LME / objVal < 1 - 1e-8 and state > 3:
+            #     exit()
+
+    print("All ratios: ")
+    originalOptions = np.get_printoptions()
+    np.set_printoptions(threshold=np.inf)
+    print(listOfRatios)
+    np.set_printoptions(**originalOptions)
+    exit()
     # (a,b): if total transitions is x, then prior at least needs to be sth like (1, x-1)
     # (a,b,c): if total transitions is x, then prior at least needs to be sth like (1, 1, 3x-2),
     # e.g., 3 transition needs (1,1,7); 4 transition needs (1,1,10)
@@ -600,7 +672,7 @@ if __name__ == '__main__':
     beta_ = np.array([0.8])
     # priors go from (1,1) to whatever
     # for success-fail model, (a,b) holds for a fails and b successes
-    numTrans_ = np.array([3])  # total number of ratings that can be received, or total number of transitions before reaching the end
+    numTrans_ = np.array([3])  # total no. of ratings that can be received, or total no. of transitions b4 reaching end
     rngStates__ = 3  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
     numPriors_ = 3 # should be very small for the general case, >2 state dimensions.
 
@@ -1105,7 +1177,7 @@ def tree():
     # raise SystemExit(0)
 
 
-def deneme():
+def denemeSimulation():
     numState = 3
     workerArriveProbability = 0.1
     workerStayProbability = 0.95

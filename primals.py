@@ -5,7 +5,7 @@ from pulp import *
 
 
 # bounds and slacks will be matrices, in the slacks matrix, the indices with 1 will be forced to have zero slacks
-def succfailOpt(n, beta, lambd, mu, prevSoln, usePrevSoln, objective, tr, slacks,
+def succfailOpt(n, beta, lambd, mu, prevSoln, usePrevSoln, objective, tr, slacks, printResults=True,
                 bounds=np.ones(1), whichobj='OPT'):  # whichobj argument, if in {-1, 0, 1}, chooses the fixed point obj
     m = LpProblem("p", LpMaximize)
     x = LpVariable.dicts("x", (range(n), range(n)), lowBound=0)
@@ -27,9 +27,9 @@ def succfailOpt(n, beta, lambd, mu, prevSoln, usePrevSoln, objective, tr, slacks
         val = 0
         for (j, i) in product(range(n), range(n)):
             ind = j + i == n - 1  # if at leaf node
-            s = tr[str(j - 1) + str(i)]['s'] if j > 0 else 0  # success to state (j, i)
-            f = tr[str(j) + str(i - 1)]['f'] if i > 0 else 0  # failure to state (j, i)
-            r = 1 - tr[str(j) + str(i)]['r'] if i + j < n - 1 else 1  # remain
+            s = tr[str(j - 1)  + "_" + str(i)]['s'] if j > 0 else 0  # success to state (j, i)
+            f = tr[str(j) + "_"  + str(i - 1)]['f'] if i > 0 else 0  # failure to state (j, i)
+            r = 1 - tr[str(j) + "_"  + str(i)]['r'] if i + j < n - 1 else 1  # remain
             # in form (1 - prob) to shorten the constraint variable
             if (i > 0) & (j > 0):
                 m += x[j][i] * r - beta * s * prevSoln[j - 1][i] - beta * f * prevSoln[j][i - 1] - \
@@ -48,9 +48,9 @@ def succfailOpt(n, beta, lambd, mu, prevSoln, usePrevSoln, objective, tr, slacks
     else:
         for (i, j) in ((i, j) for (i, j) in product(range(n), range(n)) if i + j < n):
             ind = j + i == n - 1  # if at leaf node
-            s = tr[str(j - 1) + str(i)]['s'] if j > 0 else 0  # success to state (j, i)
-            f = tr[str(j) + str(i - 1)]['f'] if i > 0 else 0  # failure to state (j, i)
-            r = 1 - tr[str(j) + str(i)]['r'] if i + j < n - 1 else 1  # remain
+            s = tr[str(j - 1) + "_"  + str(i)]['s'] if j > 0 else 0  # success to state (j, i)
+            f = tr[str(j) + "_"  + str(i - 1)]['f'] if i > 0 else 0  # failure to state (j, i)
+            r = 1 - tr[str(j) + "_"  + str(i)]['r'] if i + j < n - 1 else 1  # remain
             # in form (1 - prob) to shorten the constraint variable
             if (i > 0) & (j > 0):
                 m += x[j][i] * r - beta * s * x[j - 1][i] - beta * f * x[j][i - 1] - beta * x[j][i] * ind <= 0
@@ -92,7 +92,7 @@ def succfailOpt(n, beta, lambd, mu, prevSoln, usePrevSoln, objective, tr, slacks
         mass += value(x[j][i])
         obj += objective[j][i] * value(x[j][i])
 
-    if not res:
+    if not res and printResults:
         if whichobj == 'OPT':
             print("The job constraint is %.10f" % mass)
             print("Objective: ", obj)
