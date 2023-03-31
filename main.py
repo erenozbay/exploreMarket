@@ -43,7 +43,7 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
     dim = len(listOfStates)
     mat = np.zeros((dim, dim))  # A matrix
     rewardBase = vectorOfMultipliers(rngStates_)
-
+    nudge = np.arange(1, rngStates_ + 1)  # np.array([1, 3, 6, 10, 15])
     rewards = np.zeros(dim)
     for ii in range(dim):
         rewards[ii] = np.dot(transitions(listOfStates[ii]), rewardBase)
@@ -51,7 +51,7 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
         # also add a little more to the earlier states to manage cases where
         # there are states with the same rewards downstream
         rewards[ii] += (ii == 0) * 1e-8 + \
-                       (ii > 0) * 1e-10 / np.dot(listOfStates[ii], np.arange(1, rngStates_ + 1)) # sum(listOfStates[ii])
+                       (ii > 0) * 1e-10 / np.dot(listOfStates[ii], nudge[:rngStates_]) # sum(listOfStates[ii])
 
 
     rewards_ordered = -np.sort(-rewards)
@@ -67,7 +67,7 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
         statesAndIndices_ordered[pos] = ii
         # remove the nudges
         rewards_ordered[ii] -= (index == 0) * 1e-8 + \
-                               (index > 0) * 1e-10 / np.dot(listOfStates[index], np.arange(1, rngStates_ + 1)) # sum(listOfStates[index])
+                               (index > 0) * 1e-10 / np.dot(listOfStates[index], nudge[:rngStates_]) # sum(listOfStates[index])
 
     # transitions use state values (and the prior through the rewards)
     # build the A matrix column by column
@@ -146,7 +146,7 @@ def vectorOfChange_rating(listOfStates, rngStates_, maxNumRat, beta_val, l_state
             rewardHere = rewards_ordered[el]
             rewardOfNegChangeStateAboveZero = np.append(rewardOfNegChangeStateAboveZero, rewardHere)
     rewardOfNegChangeStateAboveZero = rewardOfNegChangeStateAboveZero[1:]
-    print(statesAndIndices_ordered)
+    # print(statesAndIndices_ordered)
     return {'mVector': mVector, 'colZeroSum': sumZero, 'monotoneM': monotone,
             'posOfZero': posOfZero, 'positiveChangeInReward': positiveChangeInReward,
             'rewards_ordered': rewards_ordered, 'changeInReward': change,
@@ -163,13 +163,14 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
     rewardBase = vectorOfMultipliers(rngStates_)
     # get the rewards in
     rewards = np.zeros(dim)
+    nudge = np.arange(1, rngStates_ + 1)  # np.array([1,3,6,10,15])
     for ii in range(dim):
         rewards[ii] =  np.dot(transitions(listOfStates[ii]), rewardBase)
         # nudge zero just a little to get the sort proper;
         # also add a little more to the earlier states to manage cases where
         # there are states with the same rewards downstream
         rewards[ii] += (ii == 0) * 1e-8 + \
-                       (ii > 0) * 1e-10 / np.dot(listOfStates[ii], np.arange(1, rngStates_ + 1)) # sum(listOfStates[ii])
+                       (ii > 0) * 1e-10 / np.dot(listOfStates[ii], nudge[:rngStates_]) # sum(listOfStates[ii])
 
     rewards_ordered = -np.sort(-rewards)
     indices_ordered = np.argsort(-rewards)  # to order states by decreasing rewards
@@ -189,8 +190,8 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
         statesAndIndices_ordered[pos] = ii
         # remove the nudges
         rewards_ordered[ii] -= (index == 0) * 1e-8 + \
-                               (index > 0) * 1e-10 / np.dot(listOfStates[index], np.arange(1, rngStates_ + 1)) # sum(listOfStates[index])
-        if keepAdding: # and rewards_ordered[ii] >= reward_state_l:
+                               (index > 0) * 1e-10 / np.dot(listOfStates[index], nudge[:rngStates_]) # sum(listOfStates[index])
+        if keepAdding:  # or rewards_ordered[ii] >= reward_state_l:
             memoizableStates = deepcopy(statesAndIndices_ordered)
         if index == 0:
             flows_memoized[pos] = np.zeros(2)
@@ -282,7 +283,7 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
             if pos not in flows_memoized:
                 flows_memoized[pos] = getFlows(listOfStates[index], beta_val, flows_memoized)
 
-            print('original flow of', pos, ':', flows_memoized[pos])
+            # print('original flow of', pos, ':', flows_memoized[pos])
     # once again loop over all eligible states, i.e., no states strictly worse than state l,
     # to obtain the relationship between state l and state 0 flows
     # the total change must sum up to zero, hence having fixed the change in state 0 to 1,
@@ -299,8 +300,9 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
         for j in range(rngStates_):
             pos += str(int(listOfStates[index][j]))
             pos += "_" if j < (rngStates_ - 1) else ""
-        numerator += flows_memoized[pos][0]
-        denominator += flows_memoized[pos][1]
+        if pos in memoizableStates:
+            numerator += flows_memoized[pos][0]
+            denominator += flows_memoized[pos][1]
     # print("numerator", numerator, "denominator", denominator)
 
     # then, modify the flows
@@ -448,7 +450,7 @@ def vectorOfChange_succFail(rewards, transitions_, beta_val, l_state):
         cumsumCheck
 
 
-def mainSim(beta, numTrans, rngStates, numPriors, size=1e5):
+def mainSim(beta, numTrans, rngStates, numPriors, size=1e5, fullModel=True):
     all_start = time()
     ratingsList = vectorOfMultipliers(rngStates)  # reward of a state is dot product of this and the state
     eligibleStates = np.zeros((int(size), rngStates))
@@ -516,45 +518,55 @@ def mainSim(beta, numTrans, rngStates, numPriors, size=1e5):
                 state_l = eligibleStates[i] ## np.array([4,5])  #
                 worseThanZero -= 1
                 print("State l is", state_l, ", its rating", np.dot(transitions(eligibleStates[i]), ratingsList))
-                res = vectorOfChange_rating(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior)
-                resNoInv = vectorOfChange_noInverse(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l,
-                                                    prior, changeZero=res['changeInZero'])
-                print("Reward change from the inverse thing", res['changeInReward'], "change in zero", res['changeInZero'])
-                print("Reward change without inverting is", resNoInv['rewardChange'], "difference is",
-                      round(res['changeInReward']-resNoInv['rewardChange'], 20))
+                if fullModel:
+                    res = vectorOfChange_rating(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l, prior)
+                    resNoInv = vectorOfChange_noInverse(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l,
+                                                        prior, changeZero=res['changeInZero'])
+                    # print("Reward change from the inverse thing", res['changeInReward'], "change in zero", res['changeInZero'])
+                    # print("Reward change without inverting is", resNoInv['rewardChange'], "difference is",
+                    #       round(res['changeInReward']-resNoInv['rewardChange'], 20))
+                else:
+                    resNoInv = vectorOfChange_noInverse(eligibleStates, rngStates, numTrans + sum(prior), beta, state_l,
+                                                        prior)
+                    print("Reward change without inverting is", resNoInv['rewardChange'])
+                    if resNoInv['rewardChange'] <= 1e-14:
+                        print("Modified flows are")
+                        print(resNoInv['modifiedFlows'])
+                        exit("Things didn't work.")
                 # print("Modified flows are")
                 # print(resNoInv['modifiedFlows'])
                 # exit()
                 # if rngStates == 2 and len(priorList) < 30:
                 #     print("M vector", res['mVector'])
                 # if resNoInv['rewardChange'] < 1e-10:
-                if np.abs(res['changeInReward']-resNoInv['rewardChange']) > 1e-10:
-                    print("Modified flows are")
-                    print(resNoInv['modifiedFlows'])
-                    print("M vector", res['mVector'])
-                    exit("Things didn't work.")
-                if res['sumBelowZero'] > 0:
-                    exit("below zero sums to " + str(res['sumBelowZero'])[:10])
-                if not res['monotoneM']:
-                    priorBasedOutcomes[countPriors, 0] = 0 # monotonicity
-                if not res['cumulativeSumsPositive']:
-                    priorBasedOutcomes[countPriors, 1] = 0 # cumulative sums
-                if res['changeInReward'] < 0 or not res['cumulativeSumsPositive']:
-                    print("Change in reward", str(res['changeInReward'])[:10], ", cumulative sums?",
-                          res['cumulativeSumsPositive'], ", below zero sums to", res['sumBelowZero'],
-                          ", col zero sums to", res['colZeroSum'])
-                    print("M is monotone?", res['monotoneM'])
-                    if res['changeInReward'] < 0:
-                        print("Zero at", res['posOfZero'], ", col zero sums to", res['colZeroSum'], ",below zero to",
-                          res['sumBelowZero'], "\nM vector", res['mVector'])
-                        print("rewards_ordered\n", res['rewards_ordered'])
-                        exit("Negative change in reward.")
+                if fullModel:
+                    if np.abs(res['changeInReward']-resNoInv['rewardChange']) > 1e-10:
+                        print("Modified flows are")
+                        print(resNoInv['modifiedFlows'])
+                        print("M vector", res['mVector'])
+                        exit("Things didn't work.")
+                    if res['sumBelowZero'] > 0:
+                        exit("below zero sums to " + str(res['sumBelowZero'])[:10])
+                    if not res['monotoneM']:
+                        priorBasedOutcomes[countPriors, 0] = 0 # monotonicity
+                    if not res['cumulativeSumsPositive']:
+                        priorBasedOutcomes[countPriors, 1] = 0 # cumulative sums
+                    if res['changeInReward'] < 0 or not res['cumulativeSumsPositive']:
+                        print("Change in reward", str(res['changeInReward'])[:10], ", cumulative sums?",
+                              res['cumulativeSumsPositive'], ", below zero sums to", res['sumBelowZero'],
+                              ", col zero sums to", res['colZeroSum'])
+                        print("M is monotone?", res['monotoneM'])
+                        if res['changeInReward'] < 0:
+                            print("Zero at", res['posOfZero'], ", col zero sums to", res['colZeroSum'], ",below zero to",
+                              res['sumBelowZero'], "\nM vector", res['mVector'])
+                            print("rewards_ordered\n", res['rewards_ordered'])
+                            exit("Negative change in reward.")
 
-                    # print("Zero at", res['posOfZero'], ", col zero sum", str(res['colZeroSum'])[:6],
-                    #       "below zero", str(res['sumBelowZero'])[:7], "\nM vector dim", len(res['mVector']))
-                    # print(res['mVector'])
-                    # print("Rewards of states with negative change", res['rewardOfNegChangeStateAboveZero'],
-                    #       "\nRating of zero" , str(ratingOfZero)[:10], "\n")
+                        # print("Zero at", res['posOfZero'], ", col zero sum", str(res['colZeroSum'])[:6],
+                        #       "below zero", str(res['sumBelowZero'])[:7], "\nM vector dim", len(res['mVector']))
+                        # print(res['mVector'])
+                        # print("Rewards of states with negative change", res['rewardOfNegChangeStateAboveZero'],
+                        #       "\nRating of zero" , str(ratingOfZero)[:10], "\n")
         if worseThanZero != 0:
             print("PROBLEM! Didn't loop over all possible l states.")
             exit()
@@ -571,28 +583,66 @@ def mainSim(beta, numTrans, rngStates, numPriors, size=1e5):
 
         countPriors += 1
         # input('Press <ENTER> to continue\n')
-    originalOptions = np.get_printoptions()
-    np.set_printoptions(threshold=np.inf)
-    print(priorBasedOutcomes)
-    np.set_printoptions(**originalOptions)
-    print(sum(priorBasedOutcomes))
-    print(sum(priorBasedOutcomes)/len(priorList))
-    print(worksOut)
+    if fullModel:
+        originalOps = np.get_printoptions()
+        np.set_printoptions(threshold=np.inf)
+        print(priorBasedOutcomes)
+        np.set_printoptions(**originalOps)
+        print(sum(priorBasedOutcomes))
+        print(sum(priorBasedOutcomes)/len(priorList))
+        print(worksOut)
     print("Successfully finished. Took " + str(time() - all_start)[:6] + " seconds.")
 
 
 if __name__ == '__main__':
 
     # plot
-    # plotRatios(7)  # argument is either 7 or 9, for \lambda = (1-\beta) / 0.7 or divided by 0.9, respectively
+    # plotRatios(9)  # argument is either 7 or 9, for \lambda = (1-\beta) / 0.7 or divided by 0.9, respectively
+    # plotRatiosGrouped(9)
+    # plotRatiosMu1Lambda(1)
     # exit()
 
-    beta_ = np.array([0.9])#, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
+
+    # (a,b): if total transitions is x, then prior at least needs to be sth like (1, x-1)
+    # (a,b,c): if total transitions is x, then prior at least needs to be sth like (1, 1, 3x-2),
+    # e.g., 3 transition needs (1,1,7); 4 transition needs (1,1,10)
+    # (a,b,c,d): if total transitions is x, then prior at least needs to be sth like (1, 1, 6x-3),
+    # e.g., 3 transition needs (1,1,1,15); 4 transition needs (1,1,1,21)
+    # (a,b,c,d,e): if total transitions is x, then prior at least needs to be sth like (1, 1, 9x-1),
+    # e.g., 3 transition needs (1,1,1,1,26); 4 transition needs (1,1,1,1,36)
+
+    # binary ratings OK: (beta 0.9, numTrans 65), (beta 0.8, numTrans 31), (beta 0.7, numTrans 20),
+    # (beta 0.6, numTrans 14), (beta 0.5, numTrans 10), (beta 0.4, numTrans 8), (beta 0.3, numTrans 6)
+    # (beta 0.2, numTrans 5), (beta 0.1, numTrans 3)
+    # tertiary ratings: (beta 0.9, numTrans 44), (beta 0.8, numTrans 20) 5 each way (125 priors) took 3 hrs - all ok,
+    # (beta 0.7, numTrans 13) k (took 1hr),
+    # (beta 0.6, numTrans 9) k, (beta 0.5, numTrans 7) k, (beta 0.4, numTrans 6) k, (beta 0.3, numTrans 5) k
+    # (beta 0.2, numTrans 4) k, (beta 0.1, numTrans 3) k
+
+    # beta_ = np.array([0.9])
+    # priors go from (1,1) to whatever
+    # for success-fail model, (a,b) holds for a fails and b successes
+    # numTrans_ = np.array([10])  # total no. of ratings that can be received, or total no. of transitions b4 reaching end
+    # rngStates__ = 5  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
+    # numPriors_ = 3 # should be very small for the general case, >2 state dimensions.
+    # for iij in range(len(beta_)):
+    #     mainSim(beta_[iij], numTrans_[iij], rngStates__, numPriors_, size=1e5, fullModel=False)
+    # exit()
+
+
+    beta_ = np.array([0.55, 0.65, 0.75, 0.85, 0.95])
     mu_ = 1
 
+    # mu = lambda = 1; 1-beta == 0.1 to 1, beta == 0 to 0.9, increment 0.1
+    # 1 - beta on x-axis
+    # 1-beta on y-axis, avg performance and minimum ratio over all instances
+    # N = 25 or 30 for all beta
+    # If beta = 0 there is nothing to do because LME = OPT :: x(0,0) = 1
+
+    # 22 gives 10% error for beta 0.9
     # for success-fail model, (a,b) holds for a fails and b successes
     # numTrans_ = np.array([3, 5, 6, 8, 10, 14, 20, 31, 65])  # total no. of transitions before reaching the end
-    numTrans_ = np.array([21]) #2, 3, 4, 6, 7, 10, 13, 21, 44])  # smaller epsilon, shorter horizons, larger error room
+    numTrans_ = np.ones(len(beta_)) * 30 # np.array([21]) #2, 3, 4, 6, 7, 10, 13, 21, 44])  # smaller epsilon, shorter horizons, larger error room
     rngStates__ = 2  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
     numPriors_ = 10  # should be very small for the general case, >2 state dimensions.
 
@@ -600,8 +650,8 @@ if __name__ == '__main__':
     counter = 0
     start_time = time()
     for st in range(len(beta_)):
-        state = numTrans_[st] + 1
-        lambda_ = (1 - beta_[st]) / 0.9
+        state = int(numTrans_[st] + 1)
+        lambda_ = 0.5  # (1 - beta_[st]) / 0.9
         obj = np.zeros((state, state))
         transition = {}
 
@@ -630,6 +680,7 @@ if __name__ == '__main__':
             newSoln, _, objVal, mass = succfailOpt(n=len(obj), beta=beta_[st], lambd=lambda_, mu=mu_,
                                                    prevSoln=np.empty(0), usePrevSoln=False,
                                                    objective=obj, tr=transition, slacks=slacks, printResults=False)
+            print("Moving to fixed point thing.")
             LME_soln, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta_[st], lambd=lambda_,
                                                             mu=min(mu_, mass), objective=obj, tr=transition,
                                                             bw="worst", printResults=False)
@@ -643,7 +694,7 @@ if __name__ == '__main__':
                   ". Took " + str(time() - start_time)[:4] + " seconds.\n")
             if counter % 5 == 0:
                 print("Recorded results so far at " + str(datetime.now()))
-                pd.DataFrame(listOfRatios).to_csv("LMEratios.csv", index=False, header=False)
+                pd.DataFrame(listOfRatios).to_csv("LMEratios_mu1lambdaHalf_05betas.csv", index=False, header=False)
             # if objVal_LME / objVal < 1 - 1e-8 and state > 3:
             #     exit()
 
@@ -652,32 +703,6 @@ if __name__ == '__main__':
     np.set_printoptions(threshold=np.inf)
     print(listOfRatios)
     np.set_printoptions(**originalOptions)
-    exit()
-    # (a,b): if total transitions is x, then prior at least needs to be sth like (1, x-1)
-    # (a,b,c): if total transitions is x, then prior at least needs to be sth like (1, 1, 3x-2),
-    # e.g., 3 transition needs (1,1,7); 4 transition needs (1,1,10)
-    # (a,b,c,d): if total transitions is x, then prior at least needs to be sth like (1, 1, 6x-3),
-    # e.g., 3 transition needs (1,1,1,15); 4 transition needs (1,1,1,21)
-    # (a,b,c,d,e): if total transitions is x, then prior at least needs to be sth like (1, 1, 9x-1),
-    # e.g., 3 transition needs (1,1,1,1,26); 4 transition needs (1,1,1,1,36)
-
-    # binary ratings OK: (beta 0.9, numTrans 65), (beta 0.8, numTrans 31), (beta 0.7, numTrans 20),
-    # (beta 0.6, numTrans 14), (beta 0.5, numTrans 10), (beta 0.4, numTrans 8), (beta 0.3, numTrans 6)
-    # (beta 0.2, numTrans 5), (beta 0.1, numTrans 3)
-    # tertiary ratings: (beta 0.9, numTrans 44), (beta 0.8, numTrans 20) 5 each way (125 priors) took 3 hrs - all ok,
-    # (beta 0.7, numTrans 13) k (took 1hr),
-    # (beta 0.6, numTrans 9) k, (beta 0.5, numTrans 7) k, (beta 0.4, numTrans 6) k, (beta 0.3, numTrans 5) k
-    # (beta 0.2, numTrans 4) k, (beta 0.1, numTrans 3) k
-
-    beta_ = np.array([0.8])
-    # priors go from (1,1) to whatever
-    # for success-fail model, (a,b) holds for a fails and b successes
-    numTrans_ = np.array([3])  # total no. of ratings that can be received, or total no. of transitions b4 reaching end
-    rngStates__ = 3  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
-    numPriors_ = 3 # should be very small for the general case, >2 state dimensions.
-
-    for iij in range(len(beta_)):
-        mainSim(beta_[iij], numTrans_[iij], rngStates__, numPriors_, size=1e5)
     exit()
 
 def tree():
