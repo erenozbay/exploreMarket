@@ -1335,7 +1335,7 @@ def denemeSimulation():
 def denemeSimulationLinear():
     start = time()
     numState = 3
-    workerArriveProbability = 0.5
+    workerArriveProbability = 1
     if workerArriveProbability == 1:
         lambdaVal = 'One'
     elif workerArriveProbability == 0.5:
@@ -1367,7 +1367,7 @@ def denemeSimulationLinear():
         # plt.rc('axes', axisbelow=True)
         plt.grid(lw=1.1)
         plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(0)'].to_numpy(), color='green', label='State 0')
-        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(1)'].to_numpy(), color='yellow', label='State 1')
+        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(1)'].to_numpy(), color='red', label='State 1')
         plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(2)'].to_numpy(), color='blue', label='State 2')
         plt.ylabel('Match Rate')
         plt.xlabel('Time')
@@ -1397,7 +1397,7 @@ def denemeSimulationLinear():
         plt.rc('axes', axisbelow=True)
         plt.grid(lw=1.1)
         plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(0)'].to_numpy(), color='green', label='State 0')
-        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(1)'].to_numpy(), color='yellow', label='State 1')
+        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(1)'].to_numpy(), color='red', label='State 1')
         plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(2)'].to_numpy(), color='blue', label='State 2')
         plt.ylabel('Price')
         plt.xlabel('Time')
@@ -1411,7 +1411,7 @@ def denemeSimulationLinear():
         plt.rc('axes', axisbelow=True)
         plt.grid(lw=1.1)
         plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(0)'].to_numpy(), color='green', label='State 0')
-        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(1)'].to_numpy(), color='yellow', label='State 1')
+        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(1)'].to_numpy(), color='red', label='State 1')
         plt.ylabel('Price')
         plt.xlabel('Time')
         plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
@@ -1425,7 +1425,7 @@ def denemeSimulationLinear():
         plt.rc('axes', axisbelow=True)
         plt.grid(lw=1.1)
         plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(0)'].to_numpy(), color='green', label='State 0')
-        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(), color='yellow', label='State 1')
+        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(), color='red', label='State 1')
         plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(2)'].to_numpy(), color='blue', label='State 2')
         plt.ylabel('Price-Adjusted Reward')
         plt.xlabel('Time')
@@ -1439,7 +1439,7 @@ def denemeSimulationLinear():
         plt.rc('axes', axisbelow=True)
         plt.grid(lw=1.1)
         plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(0)'].to_numpy(), color='green', label='State 0')
-        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(), color='yellow', label='State 1')
+        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(), color='red', label='State 1')
         plt.ylabel('Price-Adjusted Reward')
         plt.xlabel('Time')
         plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")

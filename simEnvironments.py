@@ -216,28 +216,34 @@ def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardL
         queue[0] += workerarrival[t]
         if (jobarrival[t] >= 1) & (queue.sum() > 0):  # to assign, I need a job and the system non-empty
             maxval = 0
-            randomize = 0
+            firstTime = 0
+            pickFrom = []
 
             for i in range(state):
 
                 price = (bigK - min(bigK, queue[i])) / bigK
                 if (maxval <= (rewardList[i] - C * price)) & (queue[i] > 0):
-                    if (maxval < (rewardList[i] - C * price)) & \
-                            ((rewardList[i] - C * price) > 0):  # to randomize selections of, e.g., (1,1) and (2,2)
-                        randomize = 1
+                    if firstTime == 0:
                         maxval = rewardList[i] - C * price
-                        pos_i = i
-                    elif randomize > 0:
-                        if rewardList[i] == rewardList[pos_i]:
-                            choose = random.uniform(0, 1)
-                            if choose >= 0.5:
-                                pos_i = i
+                        pickFrom.append(i)
+                        firstTime = 1
+                    else:
+                        if maxval <= (rewardList[i] - C * price):
+                            prev_maxval = maxval
+                            maxval = rewardList[i] - C * price
+                            if prev_maxval == maxval:
+                                pickFrom.append(i)
+                            else:
+                                pickFrom.clear()
+                                pickFrom.append(i)
 
             if maxval > 0:
+                pos_i = random.choice(pickFrom)
+
+                queue[pos_i] -= 1
                 if (queue < 0).any():
                     print("oops, a non-existent worker left.")
                     break
-                queue[pos_i] -= 1
                 track_assign[pos_i] += 1
 
                 reward = np.random.binomial(1, rewardList[pos_i])
@@ -270,6 +276,7 @@ def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardL
     total_reward = total_reward / (T * (1 - percent / 100))
     # pricesHere = pricesHere / (T * (1 - percent / 100))
     # print(track_mass)
+
     return track_mass, total_reward , track_queues
 
 
