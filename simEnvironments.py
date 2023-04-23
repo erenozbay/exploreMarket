@@ -196,15 +196,16 @@ def succfailSim(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardprob
     return track_mass, total_reward, track_queues
 
 
-def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardList, C, percent):
+def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardList, C, percent, recordEvery=10):
     # only deals with forward transitions, no remain for any state except the last, no backflow for anybody
     counter_conv, total_reward, counterr = 0, 0, 0
     queue, track_assign, queue_mid = np.zeros(state), np.zeros(state), np.zeros(state)
 
     # +1 in col is for time
-    track_mass, track_queues = np.zeros((int(T / 10), state + 1)), np.zeros((int(T / 10), state + 1))
+    track_mass, track_queues = np.zeros((int(T / recordEvery), state + 1)), np.zeros((int(T / recordEvery), state + 1))
     # last_queues = np.zeros((int(T * (1 - percent / 100)), int((state + 1) * state * 0.5) + 1))
     # pricesHere = np.zeros((state, state))
+    lengh=0
     ####
 
     workerarrival = np.random.binomial(1, (np.ones(T) * workerarriveprob))  # vector of arrivals for workers
@@ -239,7 +240,7 @@ def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardL
 
             if maxval > 0:
                 pos_i = random.choice(pickFrom)
-
+                lengh += 1 if len(pickFrom) > 1 else 0
                 queue[pos_i] -= 1
                 if (queue < 0).any():
                     print("oops, a non-existent worker left.")
@@ -262,7 +263,7 @@ def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardL
             queue_mid[i] += queue[i]
 
 
-        if int((t + 1) / 10) == ((t + 1) / 10):
+        if int((t + 1) / recordEvery) == ((t + 1) / recordEvery):
             track_mass[counter_conv][0] = counter_conv + 1
             track_queues[counter_conv][0] = counter_conv + 1
             # track_queues_cum[counter_conv][0] = counter_conv + 1
@@ -276,8 +277,8 @@ def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardL
     total_reward = total_reward / (T * (1 - percent / 100))
     # pricesHere = pricesHere / (T * (1 - percent / 100))
     # print(track_mass)
-
-    return track_mass, total_reward , track_queues
+    # print(lengh)
+    return track_mass, total_reward, track_queues
 
 
 

@@ -1335,7 +1335,7 @@ def denemeSimulation():
 def denemeSimulationLinear():
     start = time()
     numState = 3
-    workerArriveProbability = 1
+    workerArriveProbability = 0.5
     if workerArriveProbability == 1:
         lambdaVal = 'One'
     elif workerArriveProbability == 0.5:
@@ -1352,10 +1352,12 @@ def denemeSimulationLinear():
     objVals[2] = 1
 
     TT = int(1e6)
+    recordEvery = 10
     bigK = 1000
 
     track_mass, total_reward, track_queues = succfailLinear(numState, TT, workerArriveProbability, jobArriveProbability,
-                                              workerStayProbability, bigK, objVals, 2 * objVals[numState - 1], 80)
+                                                            workerStayProbability, bigK, objVals,
+                                                            2 * objVals[numState - 1], 80, recordEvery)
 
     df_massTree = pd.DataFrame(track_mass, columns=['Time'.split() + ['State(' + str(i) + ')'
                                                                       for i in range(numState)]], dtype=float)
