@@ -1335,7 +1335,7 @@ def denemeSimulation():
 def denemeSimulationLinear():
     start = time()
     numState = 3
-    workerArriveProbability = 0.5
+    workerArriveProbability = 1
     if workerArriveProbability == 1:
         lambdaVal = 'One'
     elif workerArriveProbability == 0.5:
@@ -1350,19 +1350,26 @@ def denemeSimulationLinear():
     objVals[0] = eps
     objVals[1] = eps / 2
     objVals[2] = 1
+    transition = np.zeros((numState, numState))
+    transition[0][1] = 1
+    transition[1][2] = 1
+    transition[2][2] = 1
+    print("State transitions ", transition)
 
     TT = int(1e6)
     recordEvery = 10
+    optimalOrLocal = 'optimal'  # 'optimal'
     bigK = 1000
 
     track_mass, total_reward, track_queues = succfailLinear(numState, TT, workerArriveProbability, jobArriveProbability,
-                                                            workerStayProbability, bigK, objVals,
-                                                            2 * objVals[numState - 1], 80, recordEvery)
+                                                            workerStayProbability, bigK, objVals, transition,
+                                                            2 * objVals[numState - 1], 80, recordEvery, optimalOrLocal)
 
     df_massTree = pd.DataFrame(track_mass, columns=['Time'.split() + ['State(' + str(i) + ')'
                                                                       for i in range(numState)]], dtype=float)
 
-    df_massTree.to_csv("massesOverTimeLinear_lambda" + str(lambdaVal) +".csv", index=False)
+    df_massTree.to_csv("massesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+                       "Pricing.csv", index=False)
     # print(df_massTree['Time'])
     if TT < 5e6:
         plt.figure(figsize=(7, 5), dpi=100)
@@ -1375,13 +1382,15 @@ def denemeSimulationLinear():
         plt.xlabel('Time')
         plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
         plt.tight_layout()
-        plt.savefig("massesOverTimeLinear_lambda" + str(lambdaVal) + ".eps", format='eps', bbox_inches='tight')
+        plt.savefig("massesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+                    "Pricing.eps", format='eps', bbox_inches='tight')
         # plt.show()
         plt.cla()
 
     pd.DataFrame(track_queues,
                  columns=['Time'.split() + ['State(' + str(i) + ')' for i in range(numState)]],
-                 dtype=float).to_csv("queuesOverTimeLinear_lambda" + str(lambdaVal) +".csv", index=False)
+                 dtype=float).to_csv("queuesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+                                     "Pricing.csv", index=False)
 
     df_qsPrice = pd.DataFrame(track_queues, columns=['Time'.split() + ['State(' + str(i) + ')'
                                                                       for i in range(numState)]], dtype=float)
@@ -1389,11 +1398,33 @@ def denemeSimulationLinear():
                                                                       for i in range(numState)]], dtype=float)
     for i in range(numState):
         namep = 'State(' + str(i) + ')'
-        df_qsPrice[namep] = df_qsPrice.apply(lambda x: 2 * objVals[numState - 1] *
-                                                    (bigK - min(bigK, x[namep])) / bigK, axis=1)
-        df_qsRewAdjPrice[namep] = df_qsRewAdjPrice.apply(lambda x: objVals[i] - 2 * objVals[numState - 1] *
-                                                                   (bigK - min(bigK, x[namep])) / bigK, axis=1)
-    df_qsPrice.to_csv("pricesOverTimeLinear_lambda" + str(lambdaVal) +".csv", index=False)
+        if optimalOrLocal == 'local':
+            print("Doing local prices.")
+            df_qsPrice[namep] = df_qsPrice.apply(lambda x: 2 * objVals[numState - 1] *
+                                                        (bigK - min(bigK, x[namep])) / bigK, axis=1)
+            df_qsRewAdjPrice[namep] = df_qsRewAdjPrice.apply(lambda x: objVals[i] - 2 * objVals[numState - 1] *
+                                                                       (bigK - min(bigK, x[namep])) / bigK, axis=1)
+        elif optimalOrLocal == 'optimal':
+            # optimal price
+            print("Doing optimal prices.", end=" ")
+            name_feed = 'State(' + str(i + 1) + ')'
+            if i < numState - 1:
+                print("For " + namep + " to " + name_feed)
+                df_qsPrice[namep] = df_qsPrice.apply(
+                    lambda x: 2 * objVals[numState - 1] * ((bigK - min(bigK, x[namep])) / bigK -
+                    workerStayProbability * transition[i][i + 1] * (bigK - min(bigK, x[name_feed])) / bigK), axis=1)
+                df_qsRewAdjPrice[namep] = df_qsRewAdjPrice.apply(
+                    lambda x: objVals[i] - 2 * objVals[numState - 1] * ((bigK - min(bigK, x[namep])) / bigK -
+                    workerStayProbability * transition[i][i + 1] * (bigK - min(bigK, x[name_feed])) / bigK), axis=1)
+            else:
+                print()
+                df_qsPrice[namep] = df_qsPrice.apply(lambda x: 2 * objVals[numState - 1] *
+                                                               (bigK - min(bigK, x[namep])) / bigK, axis=1)
+                df_qsRewAdjPrice[namep] = df_qsRewAdjPrice.apply(lambda x: objVals[i] - 2 * objVals[numState - 1] *
+                                                                           (bigK - min(bigK, x[namep])) / bigK, axis=1)
+
+    df_qsPrice.to_csv("pricesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+                      "Pricing.csv", index=False)
     if TT < 5e6:
         plt.figure(figsize=(7, 5), dpi=100)
         plt.rc('axes', axisbelow=True)
@@ -1405,7 +1436,8 @@ def denemeSimulationLinear():
         plt.xlabel('Time')
         plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
         plt.tight_layout()
-        plt.savefig("pricesOverTimeLinear_lambda" + str(lambdaVal) + ".eps", format='eps', bbox_inches='tight')
+        plt.savefig("pricesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+                    "Pricing.eps", format='eps', bbox_inches='tight')
         plt.cla()
         # plt.show()
 
@@ -1418,35 +1450,44 @@ def denemeSimulationLinear():
         plt.xlabel('Time')
         plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
         plt.tight_layout()
-        plt.savefig("pricesOverTimeLinearExclude2_lambda" + str(lambdaVal) + ".eps", format='eps', bbox_inches='tight')
+        plt.savefig("pricesOverTimeLinearExclude2_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+                    "Pricing.eps", format='eps', bbox_inches='tight')
         plt.cla()
 
-    df_qsRewAdjPrice.to_csv("pricesRewAdjOverTimeLinear_lambda" + str(lambdaVal) +".csv", index=False)
+    df_qsRewAdjPrice.to_csv("pricesRewAdjOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+                            "Pricing.csv", index=False)
     if TT < 5e6:
         plt.figure(figsize=(7, 5), dpi=100)
         plt.rc('axes', axisbelow=True)
         plt.grid(lw=1.1)
-        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(0)'].to_numpy(), color='green', label='State 0')
-        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(), color='red', label='State 1')
-        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(2)'].to_numpy(), color='blue', label='State 2')
+        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(0)'].to_numpy(),
+                 color='green', label='State 0')
+        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(),
+                 color='red', label='State 1')
+        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(2)'].to_numpy(),
+                 color='blue', label='State 2')
         plt.ylabel('Price-Adjusted Reward')
         plt.xlabel('Time')
         plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
         plt.tight_layout()
-        plt.savefig("pricesRewAdjOverTimeLinear_lambda" + str(lambdaVal) + ".eps", format='eps', bbox_inches='tight')
+        plt.savefig("pricesRewAdjOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+                    "Pricing.eps", format='eps', bbox_inches='tight')
         plt.cla()
         # plt.show()
 
         plt.figure(figsize=(7, 5), dpi=100)
         plt.rc('axes', axisbelow=True)
         plt.grid(lw=1.1)
-        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(0)'].to_numpy(), color='green', label='State 0')
-        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(), color='red', label='State 1')
+        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(0)'].to_numpy(),
+                 color='green', label='State 0')
+        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(),
+                 color='red', label='State 1')
         plt.ylabel('Price-Adjusted Reward')
         plt.xlabel('Time')
         plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
         plt.tight_layout()
-        plt.savefig("pricesRewAdjOverTimeLinearExclude2_lambda" + str(lambdaVal) + ".eps", format='eps', bbox_inches='tight')
+        plt.savefig("pricesRewAdjOverTimeLinearExclude2_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+                    "Pricing.eps", format='eps', bbox_inches='tight')
         plt.cla()
 
     print("took "+str(time() - start)[:6])

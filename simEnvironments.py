@@ -196,7 +196,8 @@ def succfailSim(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardprob
     return track_mass, total_reward, track_queues
 
 
-def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardList, C, percent, recordEvery=10):
+def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardList, transition, C, percent, recordEvery=10,
+                   optimalOrLocal = 'local'):
     # only deals with forward transitions, no remain for any state except the last, no backflow for anybody
     counter_conv, total_reward, counterr = 0, 0, 0
     queue, track_assign, queue_mid = np.zeros(state), np.zeros(state), np.zeros(state)
@@ -221,8 +222,16 @@ def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardL
             pickFrom = []
 
             for i in range(state):
-
-                price = (bigK - min(bigK, queue[i])) / bigK
+                if optimalOrLocal == 'local':
+                    price = (bigK - min(bigK, queue[i])) / bigK
+                elif optimalOrLocal == 'optimal':
+                    if i < state - 1:
+                        price = (bigK - min(bigK, queue[i])) / bigK - \
+                                wsp * transition[i][i + 1] * (bigK - min(bigK, queue[i + 1])) / bigK
+                    else:
+                        price = (bigK - min(bigK, queue[i])) / bigK
+                else:
+                    exit("Choose either optimal or local pricing algorithm.")
                 if (maxval <= (rewardList[i] - C * price)) & (queue[i] > 0):
                     if firstTime == 0:
                         maxval = rewardList[i] - C * price
