@@ -43,25 +43,26 @@ def plotRatiosMu1Lambda(oneOrHalf):
     # print(oneMinusBeta)
     # exit()
 
-    plt.figure(figsize=(8, 6), dpi=100)
+    plt.figure(figsize=(7, 5), dpi=100)
     plt.rc('axes', axisbelow=True)
-    plt.grid()  # (axis="y")
+    plt.grid(lw=1.1)  # (axis="y")
 
-    plt.plot(oneMinusBeta, minRatiosFlipped, color='r', marker='o', markersize=3, label="Minimum ratio")
-    plt.plot(oneMinusBeta, avgRatiosFlipped, color='b', marker='o', markersize=3, label="Average ratio")
-    plt.xticks(oneMinusBeta)
+    plt.plot(oneMinusBeta, minRatiosFlipped, color='r', marker='o', markersize=5.5, label="Minimum ratio", linewidth=2.6)
+    plt.plot(oneMinusBeta, avgRatiosFlipped, color='b', marker='o', markersize=5.5, label="Average ratio", linewidth=2.6)
+    plt.xticks(oneMinusBeta, fontsize=14)
+    plt.yticks(fontsize = 13)
 
     # plt.plot(oneMinusBeta, oneMinusBeta, color='r')
     # plt.yticks(oneMinusBeta)
     # plt.ylim(oneMinusBeta[-3])
-    plt.ylabel('Ratio', fontsize=14)
-    plt.xlabel(r"$\frac{\mathrm{Demand}}{\mathrm{Supply}}$", fontsize=16)
+    plt.ylabel('Ratio', fontsize=20)
+    plt.xlabel(r"$\frac{\mathrm{Demand}}{\mathrm{Supply}}$", fontsize=24)
     # plt.title('Ratios of LME Reward Across All Priors to OPT Reward', fontsize=13)
     title = 'newRatios_noLine_minAvg_lambda' + str(oneOrHalf) + '.eps'  # newRatios_noLine
-    plt.legend(loc="lower right", prop={'size': 11})
+    plt.legend(loc="lower right", prop={'size': 15})
 
     plt.savefig(title, format='eps', bbox_inches='tight')
-    plt.show()
+    # plt.show()
     plt.cla()
 
 def plotRatios(betaVal):

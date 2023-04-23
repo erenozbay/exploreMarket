@@ -196,6 +196,84 @@ def succfailSim(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardprob
     return track_mass, total_reward, track_queues
 
 
+def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardList, C, percent):
+    # only deals with forward transitions, no remain for any state except the last, no backflow for anybody
+    counter_conv, total_reward, counterr = 0, 0, 0
+    queue, track_assign, queue_mid = np.zeros(state), np.zeros(state), np.zeros(state)
+
+    # +1 in col is for time
+    track_mass, track_queues = np.zeros((int(T / 10), state + 1)), np.zeros((int(T / 10), state + 1))
+    # last_queues = np.zeros((int(T * (1 - percent / 100)), int((state + 1) * state * 0.5) + 1))
+    # pricesHere = np.zeros((state, state))
+    ####
+
+    workerarrival = np.random.binomial(1, (np.ones(T) * workerarriveprob))  # vector of arrivals for workers
+    # jobarrival = np.ones(T) * jobarriveprob #+ np.random.binomial(1, (np.ones(T) * 0.1))
+    jobarrival = np.random.binomial(1, (np.ones(T) * jobarriveprob))  # vector of arrivals for jobs
+    print("total arrivals will be ", jobarrival.sum())
+
+    for t in range(T):
+        queue[0] += workerarrival[t]
+        if (jobarrival[t] >= 1) & (queue.sum() > 0):  # to assign, I need a job and the system non-empty
+            maxval = 0
+            randomize = 0
+
+            for i in range(state):
+
+                price = (bigK - min(bigK, queue[i])) / bigK
+                if (maxval <= (rewardList[i] - C * price)) & (queue[i] > 0):
+                    if (maxval < (rewardList[i] - C * price)) & \
+                            ((rewardList[i] - C * price) > 0):  # to randomize selections of, e.g., (1,1) and (2,2)
+                        randomize = 1
+                        maxval = rewardList[i] - C * price
+                        pos_i = i
+                    elif randomize > 0:
+                        if rewardList[i] == rewardList[pos_i]:
+                            choose = random.uniform(0, 1)
+                            if choose >= 0.5:
+                                pos_i = i
+
+            if maxval > 0:
+                if (queue < 0).any():
+                    print("oops, a non-existent worker left.")
+                    break
+                queue[pos_i] -= 1
+                track_assign[pos_i] += 1
+
+                reward = np.random.binomial(1, rewardList[pos_i])
+                if t > T * percent / 100:
+                    total_reward += reward
+                stay = np.random.binomial(1, wsp)  # see if it will stay
+
+                if stay == 1:  # if the assigned worker is staying
+                    if pos_i < (state - 1):
+                        queue[pos_i + 1] += 1
+                    else:
+                        queue[pos_i] += 1
+
+        for i in range(state):
+            queue[i] = min(queue[i], bigK)
+            queue_mid[i] += queue[i]
+
+
+        if int((t + 1) / 10) == ((t + 1) / 10):
+            track_mass[counter_conv][0] = counter_conv + 1
+            track_queues[counter_conv][0] = counter_conv + 1
+            # track_queues_cum[counter_conv][0] = counter_conv + 1
+            index = 0
+            for i in range(state):
+                track_mass[counter_conv][index + 1] = track_assign[i] / (t + 1)
+                track_queues[counter_conv][index + 1] = queue[i]  # queue_mid[i][j] / (t + 1)
+                # track_queues_cum[counter_conv][index + 1] = queue_mid[i][j] / (t + 1)
+                index += 1
+            counter_conv += 1
+    total_reward = total_reward / (T * (1 - percent / 100))
+    # pricesHere = pricesHere / (T * (1 - percent / 100))
+    # print(track_mass)
+    return track_mass, total_reward , track_queues
+
+
+
 def simModulePriceDev(state, sims):
     keepRewards = np.zeros((sims, 6))
     index = 0

@@ -594,117 +594,6 @@ def mainSim(beta, numTrans, rngStates, numPriors, size=1e5, fullModel=True):
     print("Successfully finished. Took " + str(time() - all_start)[:6] + " seconds.")
 
 
-if __name__ == '__main__':
-
-    # plot
-    # plotRatios(9)  # argument is either 7 or 9, for \lambda = (1-\beta) / 0.7 or divided by 0.9, respectively
-    # plotRatiosGrouped(9)
-    # plotRatiosMu1Lambda(1)
-    # exit()
-
-
-    # (a,b): if total transitions is x, then prior at least needs to be sth like (1, x-1)
-    # (a,b,c): if total transitions is x, then prior at least needs to be sth like (1, 1, 3x-2),
-    # e.g., 3 transition needs (1,1,7); 4 transition needs (1,1,10)
-    # (a,b,c,d): if total transitions is x, then prior at least needs to be sth like (1, 1, 6x-3),
-    # e.g., 3 transition needs (1,1,1,15); 4 transition needs (1,1,1,21)
-    # (a,b,c,d,e): if total transitions is x, then prior at least needs to be sth like (1, 1, 9x-1),
-    # e.g., 3 transition needs (1,1,1,1,26); 4 transition needs (1,1,1,1,36)
-
-    # binary ratings OK: (beta 0.9, numTrans 65), (beta 0.8, numTrans 31), (beta 0.7, numTrans 20),
-    # (beta 0.6, numTrans 14), (beta 0.5, numTrans 10), (beta 0.4, numTrans 8), (beta 0.3, numTrans 6)
-    # (beta 0.2, numTrans 5), (beta 0.1, numTrans 3)
-    # tertiary ratings: (beta 0.9, numTrans 44), (beta 0.8, numTrans 20) 5 each way (125 priors) took 3 hrs - all ok,
-    # (beta 0.7, numTrans 13) k (took 1hr),
-    # (beta 0.6, numTrans 9) k, (beta 0.5, numTrans 7) k, (beta 0.4, numTrans 6) k, (beta 0.3, numTrans 5) k
-    # (beta 0.2, numTrans 4) k, (beta 0.1, numTrans 3) k
-
-    # beta_ = np.array([0.9])
-    # priors go from (1,1) to whatever
-    # for success-fail model, (a,b) holds for a fails and b successes
-    # numTrans_ = np.array([10])  # total no. of ratings that can be received, or total no. of transitions b4 reaching end
-    # rngStates__ = 5  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
-    # numPriors_ = 3 # should be very small for the general case, >2 state dimensions.
-    # for iij in range(len(beta_)):
-    #     mainSim(beta_[iij], numTrans_[iij], rngStates__, numPriors_, size=1e5, fullModel=False)
-    # exit()
-
-
-    beta_ = np.array([0.55, 0.65, 0.75, 0.85, 0.95])
-    mu_ = 1
-
-    # mu = lambda = 1; 1-beta == 0.1 to 1, beta == 0 to 0.9, increment 0.1
-    # 1 - beta on x-axis
-    # 1-beta on y-axis, avg performance and minimum ratio over all instances
-    # N = 25 or 30 for all beta
-    # If beta = 0 there is nothing to do because LME = OPT :: x(0,0) = 1
-
-    # 22 gives 10% error for beta 0.9
-    # for success-fail model, (a,b) holds for a fails and b successes
-    # numTrans_ = np.array([3, 5, 6, 8, 10, 14, 20, 31, 65])  # total no. of transitions before reaching the end
-    numTrans_ = np.ones(len(beta_)) * 30 # np.array([21]) #2, 3, 4, 6, 7, 10, 13, 21, 44])  # smaller epsilon, shorter horizons, larger error room
-    rngStates__ = 2  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
-    numPriors_ = 10  # should be very small for the general case, >2 state dimensions.
-
-    listOfRatios = np.zeros(int(numPriors_ * numPriors_ * len(beta_)))
-    counter = 0
-    start_time = time()
-    for st in range(len(beta_)):
-        state = int(numTrans_[st] + 1)
-        lambda_ = 0.5  # (1 - beta_[st]) / 0.9
-        obj = np.zeros((state, state))
-        transition = {}
-
-        for (m, n) in ((i, j) for (i, j) in product(range(numPriors_), range(numPriors_))):
-            succ = m + 1
-            fail = n + 1
-            print("Prior is (" + str(succ) + ", " + str(fail) + "). No. transitions " + str(state - 1) + ".")
-            for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
-                obj[i][j] = (succ + i) / (succ + fail + i + j)
-                transition[str(i) + "_" + str(j)] = {}
-                if i + j < (state - 1):
-                    transition[str(i) + "_" + str(j)]['s'] = obj[i][j]  # success
-                    transition[str(i) + "_" + str(j)]['f'] = 1 - transition[str(i) + "_" + str(j)]['s']  # failure
-                    transition[str(i) + "_" + str(j)]['r'] = 0  # remain
-                else:
-                    transition[str(i) + "_" + str(j)]['s'] = 0  # success
-                    transition[str(i) + "_" + str(j)]['f'] = 0  # failure
-                    transition[str(i) + "_" + str(j)]['r'] = 1
-                # print(i, j, "", transition[str(i) + "_" + str(j)].values())
-                if sum(transition[str(i) + "_" + str(j)].values()) != 1:
-                    exit("problem in (" + str(i) + ", " + str(j) + ")")
-
-            slacks = np.ones((state, state)) * max(mu_, lambda_ / (1 - beta_[st]))
-            # print("objective\n", obj)
-
-            newSoln, _, objVal, mass = succfailOpt(n=len(obj), beta=beta_[st], lambd=lambda_, mu=mu_,
-                                                   prevSoln=np.empty(0), usePrevSoln=False,
-                                                   objective=obj, tr=transition, slacks=slacks, printResults=False)
-            print("Moving to fixed point thing.")
-            LME_soln, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta_[st], lambd=lambda_,
-                                                            mu=min(mu_, mass), objective=obj, tr=transition,
-                                                            bw="worst", printResults=False)
-            listOfRatios[counter] = objVal_LME / objVal
-            counter += 1
-            print("\nRatio is " + str(objVal_LME / objVal)[:7] + " at " + str(state - 1) + " instance size.", end=" ")
-            print("Prior was (" + str(succ) + ", " + str(fail) + ").")
-            print("Lambda: " + str(lambda_)[:5] + ", and ratio of mu/lambda: " + str(mu_/lambda_)[:5] + ".")
-            print("ratio of mu/lambda * (1-beta): " + str(mu_/lambda_ * (1 - beta_[st]))[:5] +
-                  ", beta: " + str(beta_[st])[:5] + ", (1-beta): " + str(1 - beta_[st])[:5] +
-                  ". Took " + str(time() - start_time)[:4] + " seconds.\n")
-            if counter % 5 == 0:
-                print("Recorded results so far at " + str(datetime.now()))
-                pd.DataFrame(listOfRatios).to_csv("LMEratios_mu1lambdaHalf_05betas.csv", index=False, header=False)
-            # if objVal_LME / objVal < 1 - 1e-8 and state > 3:
-            #     exit()
-
-    print("All ratios: ")
-    originalOptions = np.get_printoptions()
-    np.set_printoptions(threshold=np.inf)
-    print(listOfRatios)
-    np.set_printoptions(**originalOptions)
-    exit()
-
 def tree():
     # tree
     all_start = time()
@@ -1441,3 +1330,235 @@ def denemeSimulation():
     #
     # fp_obj_val = xsum(fixedPointTree[i][j] * rewardMultipliers[i][j] for j in range(state) for i in range(state))
     # print('Empirical reward is ', empRewardTree / timeHorz, ' and the reward due to the fixed point is ', fp_obj_val)
+
+
+def denemeSimulationLinear():
+    start = time()
+    numState = 3
+    workerArriveProbability = 0.5
+    if workerArriveProbability == 1:
+        lambdaVal = 'One'
+    elif workerArriveProbability == 0.5:
+        lambdaVal = 'Half'
+    else:
+        exit("Pick lambda as either 1 or 1/2.")
+    workerStayProbability = 0.5
+    jobArriveProbability = 1
+    eps = 0.05
+
+    objVals = np.zeros(numState)
+    objVals[0] = eps
+    objVals[1] = eps / 2
+    objVals[2] = 1
+
+    TT = int(1e6)
+    bigK = 1000
+
+    track_mass, total_reward, track_queues = succfailLinear(numState, TT, workerArriveProbability, jobArriveProbability,
+                                              workerStayProbability, bigK, objVals, 2 * objVals[numState - 1], 80)
+
+    df_massTree = pd.DataFrame(track_mass, columns=['Time'.split() + ['State(' + str(i) + ')'
+                                                                      for i in range(numState)]], dtype=float)
+
+    df_massTree.to_csv("massesOverTimeLinear_lambda" + str(lambdaVal) +".csv", index=False)
+    # print(df_massTree['Time'])
+    if TT < 5e6:
+        plt.figure(figsize=(7, 5), dpi=100)
+        # plt.rc('axes', axisbelow=True)
+        plt.grid(lw=1.1)
+        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(0)'].to_numpy(), color='green', label='State 0')
+        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(1)'].to_numpy(), color='yellow', label='State 1')
+        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(2)'].to_numpy(), color='blue', label='State 2')
+        plt.ylabel('Match Rate')
+        plt.xlabel('Time')
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        plt.tight_layout()
+        plt.savefig("massesOverTimeLinear_lambda" + str(lambdaVal) + ".eps", format='eps', bbox_inches='tight')
+        # plt.show()
+        plt.cla()
+
+    pd.DataFrame(track_queues,
+                 columns=['Time'.split() + ['State(' + str(i) + ')' for i in range(numState)]],
+                 dtype=float).to_csv("queuesOverTimeLinear_lambda" + str(lambdaVal) +".csv", index=False)
+
+    df_qsPrice = pd.DataFrame(track_queues, columns=['Time'.split() + ['State(' + str(i) + ')'
+                                                                      for i in range(numState)]], dtype=float)
+    df_qsRewAdjPrice = pd.DataFrame(track_queues, columns=['Time'.split() + ['State(' + str(i) + ')'
+                                                                      for i in range(numState)]], dtype=float)
+    for i in range(numState):
+        namep = 'State(' + str(i) + ')'
+        df_qsPrice[namep] = df_qsPrice.apply(lambda x: 2 * objVals[numState - 1] *
+                                                    (bigK - min(bigK, x[namep])) / bigK, axis=1)
+        df_qsRewAdjPrice[namep] = df_qsRewAdjPrice.apply(lambda x: objVals[i] - 2 * objVals[numState - 1] *
+                                                                   (bigK - min(bigK, x[namep])) / bigK, axis=1)
+    df_qsPrice.to_csv("pricesOverTimeLinear_lambda" + str(lambdaVal) +".csv", index=False)
+    if TT < 5e6:
+        plt.figure(figsize=(7, 5), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid(lw=1.1)
+        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(0)'].to_numpy(), color='green', label='State 0')
+        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(1)'].to_numpy(), color='yellow', label='State 1')
+        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(2)'].to_numpy(), color='blue', label='State 2')
+        plt.ylabel('Price')
+        plt.xlabel('Time')
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        plt.tight_layout()
+        plt.savefig("pricesOverTimeLinear_lambda" + str(lambdaVal) + ".eps", format='eps', bbox_inches='tight')
+        plt.cla()
+        # plt.show()
+
+        plt.figure(figsize=(7, 5), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid(lw=1.1)
+        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(0)'].to_numpy(), color='green', label='State 0')
+        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(1)'].to_numpy(), color='yellow', label='State 1')
+        plt.ylabel('Price')
+        plt.xlabel('Time')
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        plt.tight_layout()
+        plt.savefig("pricesOverTimeLinearExclude2_lambda" + str(lambdaVal) + ".eps", format='eps', bbox_inches='tight')
+        plt.cla()
+
+    df_qsRewAdjPrice.to_csv("pricesRewAdjOverTimeLinear_lambda" + str(lambdaVal) +".csv", index=False)
+    if TT < 5e6:
+        plt.figure(figsize=(7, 5), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid(lw=1.1)
+        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(0)'].to_numpy(), color='green', label='State 0')
+        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(), color='yellow', label='State 1')
+        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(2)'].to_numpy(), color='blue', label='State 2')
+        plt.ylabel('Price-Adjusted Reward')
+        plt.xlabel('Time')
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        plt.tight_layout()
+        plt.savefig("pricesRewAdjOverTimeLinear_lambda" + str(lambdaVal) + ".eps", format='eps', bbox_inches='tight')
+        plt.cla()
+        # plt.show()
+
+        plt.figure(figsize=(7, 5), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid(lw=1.1)
+        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(0)'].to_numpy(), color='green', label='State 0')
+        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(), color='yellow', label='State 1')
+        plt.ylabel('Price-Adjusted Reward')
+        plt.xlabel('Time')
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        plt.tight_layout()
+        plt.savefig("pricesRewAdjOverTimeLinearExclude2_lambda" + str(lambdaVal) + ".eps", format='eps', bbox_inches='tight')
+        plt.cla()
+
+    print("took "+str(time() - start)[:6])
+    exit()
+
+
+if __name__ == '__main__':
+
+    # plot
+    # plotRatios(9)  # argument is either 7 or 9, for \lambda = (1-\beta) / 0.7 or divided by 0.9, respectively
+    # plotRatiosGrouped(9)
+    # plotRatiosMu1Lambda(1)
+    # exit()
+
+    denemeSimulationLinear()
+
+    # (a,b): if total transitions is x, then prior at least needs to be sth like (1, x-1)
+    # (a,b,c): if total transitions is x, then prior at least needs to be sth like (1, 1, 3x-2),
+    # e.g., 3 transition needs (1,1,7); 4 transition needs (1,1,10)
+    # (a,b,c,d): if total transitions is x, then prior at least needs to be sth like (1, 1, 6x-3),
+    # e.g., 3 transition needs (1,1,1,15); 4 transition needs (1,1,1,21)
+    # (a,b,c,d,e): if total transitions is x, then prior at least needs to be sth like (1, 1, 9x-1),
+    # e.g., 3 transition needs (1,1,1,1,26); 4 transition needs (1,1,1,1,36)
+
+    # binary ratings OK: (beta 0.9, numTrans 65), (beta 0.8, numTrans 31), (beta 0.7, numTrans 20),
+    # (beta 0.6, numTrans 14), (beta 0.5, numTrans 10), (beta 0.4, numTrans 8), (beta 0.3, numTrans 6)
+    # (beta 0.2, numTrans 5), (beta 0.1, numTrans 3)
+    # tertiary ratings: (beta 0.9, numTrans 44), (beta 0.8, numTrans 20) 5 each way (125 priors) took 3 hrs - all ok,
+    # (beta 0.7, numTrans 13) k (took 1hr),
+    # (beta 0.6, numTrans 9) k, (beta 0.5, numTrans 7) k, (beta 0.4, numTrans 6) k, (beta 0.3, numTrans 5) k
+    # (beta 0.2, numTrans 4) k, (beta 0.1, numTrans 3) k
+
+    # beta_ = np.array([0.9])
+    # priors go from (1,1) to whatever
+    # for success-fail model, (a,b) holds for a fails and b successes
+    # numTrans_ = np.array([10])  # total no. of ratings that can be received, or total no. of transitions b4 reaching end
+    # rngStates__ = 5  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
+    # numPriors_ = 3 # should be very small for the general case, >2 state dimensions.
+    # for iij in range(len(beta_)):
+    #     mainSim(beta_[iij], numTrans_[iij], rngStates__, numPriors_, size=1e5, fullModel=False)
+    # exit()
+
+
+    # beta_ = np.array([0.55, 0.65, 0.75, 0.85, 0.95])
+    # mu_ = 1
+
+    # mu = lambda = 1; 1-beta == 0.1 to 1, beta == 0 to 0.9, increment 0.1
+    # 1 - beta on x-axis
+    # 1-beta on y-axis, avg performance and minimum ratio over all instances
+    # N = 25 or 30 for all beta
+    # If beta = 0 there is nothing to do because LME = OPT :: x(0,0) = 1
+
+    # 22 gives 10% error for beta 0.9
+    # for success-fail model, (a,b) holds for a fails and b successes
+    # numTrans_ = np.array([3, 5, 6, 8, 10, 14, 20, 31, 65])  # total no. of transitions before reaching the end
+    # numTrans_ = np.ones(len(beta_)) * 30 # np.array([21]) #2, 3, 4, 6, 7, 10, 13, 21, 44])  # smaller epsilon, shorter horizons, larger error room
+    # rngStates__ = 2  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
+    # numPriors_ = 10  # should be very small for the general case, >2 state dimensions.
+
+    # listOfRatios = np.zeros(int(numPriors_ * numPriors_ * len(beta_)))
+    # counter = 0
+    # start_time = time()
+    # for st in range(len(beta_)):
+    #     state = int(numTrans_[st] + 1)
+    #     lambda_ = 0.5  # (1 - beta_[st]) / 0.9
+    #     obj = np.zeros((state, state))
+    #     transition = {}
+    #
+    #     for (m, n) in ((i, j) for (i, j) in product(range(numPriors_), range(numPriors_))):
+    #         succ = m + 1
+    #         fail = n + 1
+    #         print("Prior is (" + str(succ) + ", " + str(fail) + "). No. transitions " + str(state - 1) + ".")
+    #         for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
+    #             obj[i][j] = (succ + i) / (succ + fail + i + j)
+    #             transition[str(i) + "_" + str(j)] = {}
+    #             if i + j < (state - 1):
+    #                 transition[str(i) + "_" + str(j)]['s'] = obj[i][j]  # success
+    #                 transition[str(i) + "_" + str(j)]['f'] = 1 - transition[str(i) + "_" + str(j)]['s']  # failure
+    #                 transition[str(i) + "_" + str(j)]['r'] = 0  # remain
+    #             else:
+    #                 transition[str(i) + "_" + str(j)]['s'] = 0  # success
+    #                 transition[str(i) + "_" + str(j)]['f'] = 0  # failure
+    #                 transition[str(i) + "_" + str(j)]['r'] = 1
+    #             print(i, j, "", transition[str(i) + "_" + str(j)].values())
+                # if sum(transition[str(i) + "_" + str(j)].values()) != 1:
+                #     exit("problem in (" + str(i) + ", " + str(j) + ")")
+            #
+            # slacks = np.ones((state, state)) * max(mu_, lambda_ / (1 - beta_[st]))
+            # print("objective\n", obj)
+            #
+            # newSoln, _, objVal, mass = succfailOpt(n=len(obj), beta=beta_[st], lambd=lambda_, mu=mu_,
+            #                                        prevSoln=np.empty(0), usePrevSoln=False,
+            #                                        objective=obj, tr=transition, slacks=slacks, printResults=False)
+            # print("Moving to fixed point thing.")
+            # LME_soln, objVal_LME, _, _ = succfailFixedPoint(n=len(obj), beta=beta_[st], lambd=lambda_,
+            #                                                 mu=min(mu_, mass), objective=obj, tr=transition,
+            #                                                 bw="worst", printResults=False)
+            # listOfRatios[counter] = objVal_LME / objVal
+            # counter += 1
+            # print("\nRatio is " + str(objVal_LME / objVal)[:7] + " at " + str(state - 1) + " instance size.", end=" ")
+            # print("Prior was (" + str(succ) + ", " + str(fail) + ").")
+            # print("Lambda: " + str(lambda_)[:5] + ", and ratio of mu/lambda: " + str(mu_/lambda_)[:5] + ".")
+            # print("ratio of mu/lambda * (1-beta): " + str(mu_/lambda_ * (1 - beta_[st]))[:5] +
+            #       ", beta: " + str(beta_[st])[:5] + ", (1-beta): " + str(1 - beta_[st])[:5] +
+            #       ". Took " + str(time() - start_time)[:4] + " seconds.\n")
+            # if counter % 5 == 0:
+            #     print("Recorded results so far at " + str(datetime.now()))
+            #     pd.DataFrame(listOfRatios).to_csv("LMEratios_mu1lambdaHalf_05betas.csv", index=False, header=False)
+            # if objVal_LME / objVal < 1 - 1e-8 and state > 3:
+            #     exit()
+
+    # print("All ratios: ")
+    # originalOptions = np.get_printoptions()
+    # np.set_printoptions(threshold=np.inf)
+    # print(listOfRatios)
+    # np.set_printoptions(**originalOptions)
+    # exit()
