@@ -1092,13 +1092,14 @@ def tree():
 
 
 def denemeSimulation():
+    start = time()
     numState = 3
     workerArriveProbability = 0.1
-    workerStayProbability = 0.95
+    workerStayProbability = 0.95 # 0.8
     jobArriveProbability = 0.5
 
     objVals = np.zeros((numState, numState))
-    objVals[0][0] = 0.5 + 0.11
+    objVals[0][0] = 0.5
     objVals[0][1] = 0.4
     objVals[0][2] = 0.3
     # objVals[0][3] = 0.2
@@ -1110,18 +1111,49 @@ def denemeSimulation():
     # objVals[3][0] = 0.9
 
     TT = int(1e6)
+    bigK = 1000
+    cC = 2 * objVals[numState - 1][0]
+    recordEvery = 100
 
     track_mass, total_reward, track_queues = succfailSim(numState, TT, workerArriveProbability, jobArriveProbability,
-                                                         workerStayProbability, 1000, objVals,
-                                                         2 * objVals[numState - 1][0], 80)
+                                                         workerStayProbability, bigK, objVals,
+                                                         cC, 80, recordEvery)
 
     df_massTree = pd.DataFrame(track_mass,
                                columns=['Time'.split() + ['State(' + str(i) + ',' + str(j) + ')' for (i, j) in
                                                           ((i, j) for (i, j) in
                                                            product(range(numState), range(numState)) if
                                                            i + j <= (numState - 1))]], dtype=float)
+    df_qsTree = pd.DataFrame(track_queues,
+                               columns=['Time'.split() + ['State(' + str(i) + ',' + str(j) + ')' for (i, j) in
+                                                          ((i, j) for (i, j) in
+                                                           product(range(numState), range(numState)) if
+                                                           i + j <= (numState - 1))]], dtype=float)
 
-    df_massTree.to_csv("massesOverTime.csv", index=False)
+    for (i, j) in ((i, j) for (i, j) in product(range(numState), range(numState)) if i + j <= (numState - 1)):
+        name = 'State(' + str(i) + ',' + str(j) + ')'
+        namep_just = 'Price(' + str(i) + ',' + str(j) + ')'
+
+        # local price #
+        df_qsTree[namep_just] = df_qsTree.apply(lambda x: cC * (bigK - min(bigK, x[name])) / bigK, axis=1)
+        # local price #
+    # df_qsTree.to_csv("pricesOverTimeTree.csv", index=False)
+    # df_massTree.to_csv("massesOverTime.csv", index=False)
+
+    print("took " + str(time() - start)[:6])
+
+    plt.figure(figsize=(7, 5), dpi=100)
+    plt.rc('axes', axisbelow=True)
+    plt.grid(lw=1.1)
+    plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['Price(0,0)'].to_numpy(), color='green', label='State 0,0')
+    plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['Price(1,0)'].to_numpy(), color='red', label='State 1,0')
+    plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['Price(2,0)'].to_numpy(), color='blue', label='State 2,0')
+    plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['Price(1,1)'].to_numpy(), color='purple', label='State 1,1')
+    plt.ylabel('Price')
+    plt.xlabel('Time')
+    plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+    plt.tight_layout()
+    plt.show()
 
     # plot_mass = ggplot(df_massTree) + aes(x='Time', y=['State(0,0)', 'State(0,1)', 'State(0,2)', 'State(1,0)',
     # 'State(1,1)', 'State(2,0)']) + geom_point(size=0.005)
@@ -1341,12 +1373,15 @@ def denemeSimulationLinear():
     elif workerArriveProbability == 0.5:
         lambdaVal = 'Half'
     else:
+        # lambdaVal = "_" + str(workerArriveProbability) + "_"
         exit("Pick lambda as either 1 or 1/2.")
     workerStayProbability = 0.5
     jobArriveProbability = 1
-    eps = 0.05
+    eps = 0.8  # 0.05 or 0.8
 
     objVals = np.zeros(numState)
+    initQueues = np.zeros(numState)
+    # initQueues[0], initQueues[1], initQueues[2] = 980, 0, 0
     objVals[0] = eps
     objVals[1] = eps / 2
     objVals[2] = 1
@@ -1354,15 +1389,15 @@ def denemeSimulationLinear():
     transition[0][1] = 1
     transition[1][2] = 1
     transition[2][2] = 1
-    print("State transitions ", transition)
+    print("State transitions \n", transition)
 
     TT = int(1e6)
     recordEvery = 10
-    optimalOrLocal = 'optimal'  # 'optimal'
+    optimalOrLocal = 'optimal'  # 'optimal' or 'local'
     bigK = 1000
 
     track_mass, total_reward, track_queues = succfailLinear(numState, TT, workerArriveProbability, jobArriveProbability,
-                                                            workerStayProbability, bigK, objVals, transition,
+                                                            workerStayProbability, bigK, objVals, transition, initQueues,
                                                             2 * objVals[numState - 1], 80, recordEvery, optimalOrLocal)
 
     df_massTree = pd.DataFrame(track_mass, columns=['Time'.split() + ['State(' + str(i) + ')'
@@ -1371,7 +1406,7 @@ def denemeSimulationLinear():
     df_massTree.to_csv("massesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
                        "Pricing.csv", index=False)
     # print(df_massTree['Time'])
-    if TT < 5e6:
+    if TT <= 5e7:
         plt.figure(figsize=(7, 5), dpi=100)
         # plt.rc('axes', axisbelow=True)
         plt.grid(lw=1.1)
@@ -1399,17 +1434,17 @@ def denemeSimulationLinear():
     for i in range(numState):
         namep = 'State(' + str(i) + ')'
         if optimalOrLocal == 'local':
-            print("Doing local prices.")
+            # print("Doing local prices.")
             df_qsPrice[namep] = df_qsPrice.apply(lambda x: 2 * objVals[numState - 1] *
                                                         (bigK - min(bigK, x[namep])) / bigK, axis=1)
             df_qsRewAdjPrice[namep] = df_qsRewAdjPrice.apply(lambda x: objVals[i] - 2 * objVals[numState - 1] *
                                                                        (bigK - min(bigK, x[namep])) / bigK, axis=1)
         elif optimalOrLocal == 'optimal':
             # optimal price
-            print("Doing optimal prices.", end=" ")
+            # print("Doing optimal prices.", end=" ")
             name_feed = 'State(' + str(i + 1) + ')'
             if i < numState - 1:
-                print("For " + namep + " to " + name_feed)
+                # print("For " + namep + " to " + name_feed)
                 df_qsPrice[namep] = df_qsPrice.apply(
                     lambda x: 2 * objVals[numState - 1] * ((bigK - min(bigK, x[namep])) / bigK -
                     workerStayProbability * transition[i][i + 1] * (bigK - min(bigK, x[name_feed])) / bigK), axis=1)
@@ -1417,15 +1452,17 @@ def denemeSimulationLinear():
                     lambda x: objVals[i] - 2 * objVals[numState - 1] * ((bigK - min(bigK, x[namep])) / bigK -
                     workerStayProbability * transition[i][i + 1] * (bigK - min(bigK, x[name_feed])) / bigK), axis=1)
             else:
-                print()
+                # print()
                 df_qsPrice[namep] = df_qsPrice.apply(lambda x: 2 * objVals[numState - 1] *
-                                                               (bigK - min(bigK, x[namep])) / bigK, axis=1)
+                                                               (bigK - min(bigK, x[namep])) / bigK
+                                                               * (1 - workerStayProbability), axis=1)
                 df_qsRewAdjPrice[namep] = df_qsRewAdjPrice.apply(lambda x: objVals[i] - 2 * objVals[numState - 1] *
-                                                                           (bigK - min(bigK, x[namep])) / bigK, axis=1)
+                                                                           (bigK - min(bigK, x[namep])) / bigK
+                                                                           * (1 - workerStayProbability), axis=1)
 
     df_qsPrice.to_csv("pricesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
                       "Pricing.csv", index=False)
-    if TT < 5e6:
+    if TT <= 5e7:
         plt.figure(figsize=(7, 5), dpi=100)
         plt.rc('axes', axisbelow=True)
         plt.grid(lw=1.1)
@@ -1441,22 +1478,22 @@ def denemeSimulationLinear():
         plt.cla()
         # plt.show()
 
-        plt.figure(figsize=(7, 5), dpi=100)
-        plt.rc('axes', axisbelow=True)
-        plt.grid(lw=1.1)
-        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(0)'].to_numpy(), color='green', label='State 0')
-        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(1)'].to_numpy(), color='red', label='State 1')
-        plt.ylabel('Price')
-        plt.xlabel('Time')
-        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
-        plt.tight_layout()
-        plt.savefig("pricesOverTimeLinearExclude2_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
-                    "Pricing.eps", format='eps', bbox_inches='tight')
-        plt.cla()
+        # plt.figure(figsize=(7, 5), dpi=100)
+        # plt.rc('axes', axisbelow=True)
+        # plt.grid(lw=1.1)
+        # plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(0)'].to_numpy(), color='green', label='State 0')
+        # plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(1)'].to_numpy(), color='red', label='State 1')
+        # plt.ylabel('Price')
+        # plt.xlabel('Time')
+        # plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        # plt.tight_layout()
+        # plt.savefig("pricesOverTimeLinearExclude2_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+        #             "Pricing.eps", format='eps', bbox_inches='tight')
+        # plt.cla()
 
     df_qsRewAdjPrice.to_csv("pricesRewAdjOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
                             "Pricing.csv", index=False)
-    if TT < 5e6:
+    if TT <= 5e7:
         plt.figure(figsize=(7, 5), dpi=100)
         plt.rc('axes', axisbelow=True)
         plt.grid(lw=1.1)
@@ -1475,23 +1512,22 @@ def denemeSimulationLinear():
         plt.cla()
         # plt.show()
 
-        plt.figure(figsize=(7, 5), dpi=100)
-        plt.rc('axes', axisbelow=True)
-        plt.grid(lw=1.1)
-        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(0)'].to_numpy(),
-                 color='green', label='State 0')
-        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(),
-                 color='red', label='State 1')
-        plt.ylabel('Price-Adjusted Reward')
-        plt.xlabel('Time')
-        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
-        plt.tight_layout()
-        plt.savefig("pricesRewAdjOverTimeLinearExclude2_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
-                    "Pricing.eps", format='eps', bbox_inches='tight')
-        plt.cla()
+        # plt.figure(figsize=(7, 5), dpi=100)
+        # plt.rc('axes', axisbelow=True)
+        # plt.grid(lw=1.1)
+        # plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(0)'].to_numpy(),
+        #          color='green', label='State 0')
+        # plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(),
+        #          color='red', label='State 1')
+        # plt.ylabel('Price-Adjusted Reward')
+        # plt.xlabel('Time')
+        # plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        # plt.tight_layout()
+        # plt.savefig("pricesRewAdjOverTimeLinearExclude2_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+        #             "Pricing.eps", format='eps', bbox_inches='tight')
+        # plt.cla()
 
     print("took "+str(time() - start)[:6])
-    exit()
 
 
 if __name__ == '__main__':
@@ -1503,6 +1539,7 @@ if __name__ == '__main__':
     # exit()
 
     denemeSimulationLinear()
+    # denemeSimulation()
 
     # (a,b): if total transitions is x, then prior at least needs to be sth like (1, x-1)
     # (a,b,c): if total transitions is x, then prior at least needs to be sth like (1, 1, 3x-2),

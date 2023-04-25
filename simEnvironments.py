@@ -28,12 +28,13 @@ def getRs(rewardMulti, state):
 
 
 # considers the parameters in beta as the position, (success, failure), with some room for deviating those with iii, jjj
-def succfailSim(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardprob, C, percent, iii=0, jjj=0):
+def succfailSim(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardprob, C, percent, recordEvery = 10,
+                optimalOrLocal = 'local', iii=0, jjj=0):
     counter_conv, total_reward, counterr = 0, 0, 0
     queue, track_assign, queue_mid = np.zeros((state, state)), np.zeros((state, state)), np.zeros((state, state))
-    track_mass, track_queues, track_queues_cum = np.zeros((int(T / 10), int((state + 1) * state * 0.5) + 1)), \
-                                                 np.zeros((int(T / 10), int((state + 1) * state * 0.5) + 1)), \
-                                                 np.zeros((int(T / 10), int((state + 1) * state * 0.5) + 1))
+    track_mass, track_queues, track_queues_cum = np.zeros((int(T / recordEvery), int((state + 1) * state * 0.5) + 1)), \
+                                                 np.zeros((int(T / recordEvery), int((state + 1) * state * 0.5) + 1)), \
+                                                 np.zeros((int(T / recordEvery), int((state + 1) * state * 0.5) + 1))
     # last_queues = np.zeros((int(T * (1 - percent / 100)), int((state + 1) * state * 0.5) + 1))
     # pricesHere = np.zeros((state, state))
     ####
@@ -179,7 +180,7 @@ def succfailSim(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardprob
         #         pricesHere[i][j] += queue[i][j]
         #     # counterr += 1
 
-        if int((t + 1) / 10) == ((t + 1) / 10):
+        if int((t + 1) / recordEvery) == ((t + 1) / recordEvery):
             track_mass[counter_conv][0] = counter_conv + 1
             track_queues[counter_conv][0] = counter_conv + 1
             track_queues_cum[counter_conv][0] = counter_conv + 1
@@ -196,11 +197,11 @@ def succfailSim(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardprob
     return track_mass, total_reward, track_queues
 
 
-def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardList, transition, C, percent, recordEvery=10,
-                   optimalOrLocal = 'local'):
+def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardList, transition,
+                   initQueue, C, percent, recordEvery=10, optimalOrLocal = 'local'):
     # only deals with forward transitions, no remain for any state except the last, no backflow for anybody
     counter_conv, total_reward, counterr = 0, 0, 0
-    queue, track_assign, queue_mid = np.zeros(state), np.zeros(state), np.zeros(state)
+    queue, track_assign, queue_mid = initQueue, np.zeros(state), np.zeros(state)
 
     # +1 in col is for time
     track_mass, track_queues = np.zeros((int(T / recordEvery), state + 1)), np.zeros((int(T / recordEvery), state + 1))
@@ -229,7 +230,7 @@ def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardL
                         price = (bigK - min(bigK, queue[i])) / bigK - \
                                 wsp * transition[i][i + 1] * (bigK - min(bigK, queue[i + 1])) / bigK
                     else:
-                        price = (bigK - min(bigK, queue[i])) / bigK
+                        price = (bigK - min(bigK, queue[i])) / bigK * (1 - wsp)
                 else:
                     exit("Choose either optimal or local pricing algorithm.")
                 if (maxval <= (rewardList[i] - C * price)) & (queue[i] > 0):
