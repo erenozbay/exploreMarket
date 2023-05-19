@@ -28,6 +28,8 @@ def succfailDual(n, beta, lambd, mu, objective):
     # m.optimize()
     m.solve(PULP_CBC_CMD(msg=False))
 
+    m.writeLP("dual.txt")
+
     soln = np.zeros((n, n))
     print("alpha " + str(value(alpha)) + "; and the solution")
     for (i, j) in product(range(n), range(n)):

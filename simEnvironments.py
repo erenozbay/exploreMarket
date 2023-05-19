@@ -120,19 +120,23 @@ def succfailSim(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardprob
             ################ new steps ################
 
             for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
-                # if i + j < (state - 1):
-                #     if (i + j == 0) or (i * j >= 1):
-                #         price = (bigK - min(bigK, queue[i][j])) / bigK - \
-                #                     wsp * (i + 1) / (i + j + 2) * (bigK - min(bigK, queue[i + 1][j])) / bigK - \
-                #                     wsp * (j + 1) / (i + j + 2) * (bigK - min(bigK, queue[i][j + 1])) / bigK
-                #     elif i == 0:
-                #         price = (bigK - min(bigK, queue[i][j])) / bigK - \
-                #                 wsp * (j + 1) / (i + j + 2) * (bigK - min(bigK, queue[i][j + 1])) / bigK
-                #     elif j == 0:
-                #         price = (bigK - min(bigK, queue[i][j])) / bigK - \
-                #                 wsp * (i + 1) / (i + j + 2) * (bigK - min(bigK, queue[i + 1][j])) / bigK
-                # else:
-                price = (bigK - min(bigK, queue[i][j])) / bigK
+                if optimalOrLocal == 'optimal':
+                    if i + j < (state - 1):
+                        # if (i + j == 0) or (i * j >= 1):
+                        price = (bigK - min(bigK, queue[i][j])) / bigK - \
+                                    wsp * (i + 1) / (i + j + 2) * (bigK - min(bigK, queue[i + 1][j])) / bigK - \
+                                    wsp * (j + 1) / (i + j + 2) * (bigK - min(bigK, queue[i][j + 1])) / bigK
+                        # elif i == 0:
+                        #     price = (bigK - min(bigK, queue[i][j])) / bigK - \
+                        #             wsp * (j + 1) / (i + j + 2) * (bigK - min(bigK, queue[i][j + 1])) / bigK
+                        # elif j == 0:
+                        #     price = (bigK - min(bigK, queue[i][j])) / bigK - \
+                        #             wsp * (i + 1) / (i + j + 2) * (bigK - min(bigK, queue[i + 1][j])) / bigK
+                    elif i + j == (state - 1):
+                        price = (bigK - min(bigK, queue[i][j])) / bigK - \
+                                wsp * (bigK - min(bigK, queue[i][j])) / bigK
+                else:
+                    price = (bigK - min(bigK, queue[i][j])) / bigK
                 if (maxval <= (rewardprob[i][j] - C * price)) & (queue[i][j] > 0):
                     if (maxval < (rewardprob[i][j] - C * price)) & (
                             (rewardprob[i][j] - C * price) > 0):  # to randomize selections of, e.g., (1,1) and (2,2)

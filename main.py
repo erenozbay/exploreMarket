@@ -170,7 +170,7 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
         # also add a little more to the earlier states to manage cases where
         # there are states with the same rewards downstream
         rewards[ii] += (ii == 0) * 1e-8 + \
-                       (ii > 0) * 1e-10 / np.dot(listOfStates[ii], nudge[:rngStates_]) # sum(listOfStates[ii])
+                       (ii > 0) * 1e-9 / np.dot(listOfStates[ii], nudge[:rngStates_]) # sum(listOfStates[ii])
 
     rewards_ordered = -np.sort(-rewards)
     indices_ordered = np.argsort(-rewards)  # to order states by decreasing rewards
@@ -190,16 +190,20 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
         statesAndIndices_ordered[pos] = ii
         # remove the nudges
         rewards_ordered[ii] -= (index == 0) * 1e-8 + \
-                               (index > 0) * 1e-10 / np.dot(listOfStates[index], nudge[:rngStates_]) # sum(listOfStates[index])
-        if keepAdding:  # or rewards_ordered[ii] >= reward_state_l:
+                               (index > 0) * 1e-9 / np.dot(listOfStates[index], nudge[:rngStates_]) # sum(listOfStates[index])
+        if keepAdding: # rewards_ordered[ii] >= reward_state_l: #or
+            # must keep adding upstream states with matching rewards to the l-state
             memoizableStates = deepcopy(statesAndIndices_ordered)
         if index == 0:
             flows_memoized[pos] = np.zeros(2)
             flows_memoized[pos][0] = 1
+            memoizableStates = deepcopy(statesAndIndices_ordered)
         if sum(np.abs(listOfStates[index] - l_state)) == 0:
             flows_memoized[pos] = np.zeros(2)
             flows_memoized[pos][1] = 1
             state_l_local_index = ii
+            memoizableStates = deepcopy(statesAndIndices_ordered)
+        if keepAdding and (rewards_ordered[ii] < reward_state_l):
             keepAdding = False
 
     # print("first time", flows_memoized)
@@ -269,7 +273,8 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
     for ii in range(dim):
         pos = ""
         index = indices_ordered[ii]
-        if rewards_ordered[ii] >= reward_state_l:
+        if (rewards_ordered[ii] >= reward_state_l) or (ii <= state_l_local_index):
+            # on 5.19.2023, eren changed above line from rewards_ordered[ii] >= reward_state_l to what is now up there
         # if (rewards_ordered[ii] > reward_state_l) or ((rewards_ordered[ii] >= reward_state_l)
         #                                               and (sum(listOfStates[index]) < sum(l_state))):
             for j in range(rngStates_):
@@ -297,6 +302,7 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
     for ii in (ij for ij in range(dim) if ij <= state_l_local_index):
         pos = ""
         index = indices_ordered[ii]
+
         for j in range(rngStates_):
             pos += str(int(listOfStates[index][j]))
             pos += "_" if j < (rngStates_ - 1) else ""
@@ -304,6 +310,10 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
             numerator += flows_memoized[pos][0]
             denominator += flows_memoized[pos][1]
     # print("numerator", numerator, "denominator", denominator)
+    if denominator == 0:
+        print("The denominator is zero. That's a problem.")
+    if numerator == 0:
+        print("The numerator is zero. That's a problem.")
 
     # then, modify the flows
     modified_flows = deepcopy(flows_memoized)
@@ -339,7 +349,7 @@ def vectorOfChange_noInverse(listOfStates, rngStates_, maxNumRat, beta_val, l_st
         # print("pos", pos, "flow", sum(modified_flows[pos]))
         rewardChange += sum(modified_flows[pos]) * rewards_ordered[ii]
     # print("indices ordered", indices_ordered)
-    return {'modifiedFlows': modified_flows, 'rewardChange': rewardChange}
+    return {'modifiedFlows': modified_flows, 'rewardChange': rewardChange, 'memoizableStates': memoizableStates}
 
 
 def vectorOfChange_succFail(rewards, transitions_, beta_val, l_state):
@@ -494,7 +504,7 @@ def mainSim(beta, numTrans, rngStates, numPriors, size=1e5, fullModel=True):
     worksOut = {}
     # priorList = np.array([[3, 4], [3, 4]])
     # priorList = np.array([[1,1,1,1,26],[1,1,1,2,28]])
-
+    # priorList = np.array([[1, 1, 3, 1, 1]])
     countPriors = 0
     for prInd in range(len(priorList)):
         worseThanZero = 0
@@ -532,6 +542,8 @@ def mainSim(beta, numTrans, rngStates, numPriors, size=1e5, fullModel=True):
                     if resNoInv['rewardChange'] <= 1e-14:
                         print("Modified flows are")
                         print(resNoInv['modifiedFlows'])
+                        print("memoizableStates")
+                        print(resNoInv['memoizableStates'])
                         exit("Things didn't work.")
                 # print("Modified flows are")
                 # print(resNoInv['modifiedFlows'])
@@ -1094,9 +1106,12 @@ def tree():
 def denemeSimulation():
     start = time()
     numState = 3
-    workerArriveProbability = 0.1
-    workerStayProbability = 0.95 # 0.8
-    jobArriveProbability = 0.5
+    # lambda
+    workerArriveProbability =  0.2 # 0.1 #
+    # beta
+    workerStayProbability =  0.8 # 0.95 #
+    # mu
+    jobArriveProbability =  0.6 # 0.5 #
 
     objVals = np.zeros((numState, numState))
     objVals[0][0] = 0.5
@@ -1109,51 +1124,187 @@ def denemeSimulation():
     objVals[2][0] = 0.8
     # objVals[2][1] = 0.7
     # objVals[3][0] = 0.9
+    doPrimalDual = False
+    if doPrimalDual:
+    # for primal dual
+        transition = {}
+        for (i, j) in ((i, j) for (i, j) in product(range(numState), range(numState)) if i + j <= (numState - 1)):
+            transition[str(i) + "_" + str(j)] = {}
+            if i + j < (numState - 1):
+                transition[str(i) + "_" + str(j)]['s'] = objVals[i][j]  # success
+                transition[str(i) + "_" + str(j)]['f'] = 1 - transition[str(i) + "_" + str(j)]['s']  # failure
+                transition[str(i) + "_" + str(j)]['r'] = 0  # remain
+            else:
+                transition[str(i) + "_" + str(j)]['s'] = 0  # success
+                transition[str(i) + "_" + str(j)]['f'] = 0  # failure
+                transition[str(i) + "_" + str(j)]['r'] = 1
+            # print(i, j, "", transition[str(i) + str(j)].values())
+            if sum(transition[str(i) + "_" + str(j)].values()) != 1:
+                exit("problem in (" + str(i) + ", " + str(j) + ")")
+
+        succfailOpt(numState, workerStayProbability, workerArriveProbability, jobArriveProbability, np.empty(0), False,
+                    objVals, transition, np.ones((numState, numState)) * 2)
+        succfailFixedPoint(n=len(objVals), beta=workerStayProbability, lambd=workerArriveProbability,
+                           mu=jobArriveProbability, objective=objVals, tr=transition)
+        succfailDual(numState, workerStayProbability, workerArriveProbability, jobArriveProbability, objVals)
+        exit()
+    # for primal dual
 
     TT = int(1e6)
     bigK = 1000
     cC = 2 * objVals[numState - 1][0]
-    recordEvery = 100
+    recordEvery = 10
+    optOrLocalOrBoth = 'both' # 'optimal', 'local', 'both'
 
-    track_mass, total_reward, track_queues = succfailSim(numState, TT, workerArriveProbability, jobArriveProbability,
-                                                         workerStayProbability, bigK, objVals,
-                                                         cC, 80, recordEvery)
+    if optOrLocalOrBoth == 'local' or optOrLocalOrBoth == 'both':
+        print("Local pricing.")
+        track_mass, total_reward, track_queues = succfailSim(numState, TT, workerArriveProbability, jobArriveProbability,
+                                                             workerStayProbability, bigK, objVals,
+                                                             cC, 80, recordEvery)
 
-    df_massTree = pd.DataFrame(track_mass,
-                               columns=['Time'.split() + ['State(' + str(i) + ',' + str(j) + ')' for (i, j) in
-                                                          ((i, j) for (i, j) in
-                                                           product(range(numState), range(numState)) if
-                                                           i + j <= (numState - 1))]], dtype=float)
-    df_qsTree = pd.DataFrame(track_queues,
-                               columns=['Time'.split() + ['State(' + str(i) + ',' + str(j) + ')' for (i, j) in
-                                                          ((i, j) for (i, j) in
-                                                           product(range(numState), range(numState)) if
-                                                           i + j <= (numState - 1))]], dtype=float)
+        df_massTree = pd.DataFrame(track_mass,
+                                   columns=['Time'.split() + ['State(' + str(i) + ',' + str(j) + ')' for (i, j) in
+                                                              ((i, j) for (i, j) in
+                                                               product(range(numState), range(numState)) if
+                                                               i + j <= (numState - 1))]], dtype=float)
+        df_qsTree = pd.DataFrame(track_queues,
+                                   columns=['Time'.split() + ['State(' + str(i) + ',' + str(j) + ')' for (i, j) in
+                                                              ((i, j) for (i, j) in
+                                                               product(range(numState), range(numState)) if
+                                                               i + j <= (numState - 1))]], dtype=float)
 
-    for (i, j) in ((i, j) for (i, j) in product(range(numState), range(numState)) if i + j <= (numState - 1)):
-        name = 'State(' + str(i) + ',' + str(j) + ')'
-        namep_just = 'Price(' + str(i) + ',' + str(j) + ')'
+        for (i, j) in ((i, j) for (i, j) in product(range(numState), range(numState)) if i + j <= (numState - 1)):
+            name = 'State(' + str(i) + ',' + str(j) + ')'
+            namep_just = 'Price(' + str(i) + ',' + str(j) + ')'
 
-        # local price #
-        df_qsTree[namep_just] = df_qsTree.apply(lambda x: cC * (bigK - min(bigK, x[name])) / bigK, axis=1)
-        # local price #
-    # df_qsTree.to_csv("pricesOverTimeTree.csv", index=False)
-    # df_massTree.to_csv("massesOverTime.csv", index=False)
+            # local price #
+            df_qsTree[namep_just] = df_qsTree.apply(lambda x: cC * (bigK - min(bigK, x[name])) / bigK, axis=1)
+            # local price #
 
-    print("took " + str(time() - start)[:6])
+        # df_qsTree.to_csv("pricesOverTimeTree.csv", index=False)
+        # df_massTree.to_csv("massesOverTime.csv", index=False)
+        print(df_qsTree)
+        print("took " + str(time() - start)[:6])
 
-    plt.figure(figsize=(7, 5), dpi=100)
-    plt.rc('axes', axisbelow=True)
-    plt.grid(lw=1.1)
-    plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['Price(0,0)'].to_numpy(), color='green', label='State 0,0')
-    plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['Price(1,0)'].to_numpy(), color='red', label='State 1,0')
-    plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['Price(2,0)'].to_numpy(), color='blue', label='State 2,0')
-    plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['Price(1,1)'].to_numpy(), color='purple', label='State 1,1')
-    plt.ylabel('Price')
-    plt.xlabel('Time')
-    plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
-    plt.tight_layout()
-    plt.show()
+        plt.figure(figsize=(7, 5), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid(lw=1.1)
+        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(0,0)'].to_numpy(), color='green', label='State 0,0')
+        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(1,0)'].to_numpy(), color='red', label='State 1,0')
+        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(2,0)'].to_numpy(), color='blue', label='State 2,0')
+        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(1,1)'].to_numpy(), color='purple', label='State 1,1')
+        plt.ylabel('Match Rates')
+        plt.xlabel('Time')
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        plt.tight_layout()
+        plt.show()
+
+        plt.figure(figsize=(7, 5), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid(lw=1.1)
+        plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['Price(0,0)'].to_numpy(), color='green', label='State 0,0')
+        plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['Price(1,0)'].to_numpy(), color='red', label='State 1,0')
+        plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['Price(2,0)'].to_numpy(), color='blue', label='State 2,0')
+        plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['Price(1,1)'].to_numpy(), color='purple', label='State 1,1')
+        plt.ylabel('Price')
+        plt.xlabel('Time')
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        plt.tight_layout()
+        plt.show()
+
+    if optOrLocalOrBoth == 'optimal' or optOrLocalOrBoth == 'both':
+        print("Optimal pricing.")
+        start = time()
+        track_mass, total_reward, track_queues = succfailSim(numState, TT, workerArriveProbability, jobArriveProbability,
+                                                             workerStayProbability, bigK, objVals,
+                                                             cC, 80, recordEvery, 'optimal')
+
+        df_massTree = pd.DataFrame(track_mass,
+                                   columns=['Time'.split() + ['State(' + str(i) + ',' + str(j) + ')' for (i, j) in
+                                                              ((i, j) for (i, j) in
+                                                               product(range(numState), range(numState)) if
+                                                               i + j <= (numState - 1))]], dtype=float)
+
+        df_qsTree = pd.DataFrame(track_queues,
+                                 columns=['Time'.split() + ['State(' + str(i) + ',' + str(j) + ')' for (i, j) in
+                                                            ((i, j) for (i, j) in
+                                                             product(range(numState), range(numState)) if
+                                                             i + j <= (numState - 1))]], dtype=float)
+
+        for (i, j) in ((i, j) for (i, j) in product(range(numState), range(numState)) if i + j <= (numState - 1)):
+            name = 'State(' + str(i) + ',' + str(j) + ')'
+
+            name_s = 'State(' + str(i + 1) + ',' + str(j) + ')'
+            name_f = 'State(' + str(i) + ',' + str(j + 1) + ')'
+            namep = 'OptPrice(' + str(i) + ',' + str(j) + ')'
+            namep_eff = 'EffReward(' + str(i) + ',' + str(j) + ')'
+            wsp = workerStayProbability
+            if i + j < (numState - 1):
+                # if (i + j == 0) or (i * j >= 1):
+                df_qsTree[namep] = df_qsTree.apply(
+                    lambda x: cC * ((bigK - min(bigK, x[name])) / bigK -
+                                    wsp * (i + 1) / (i + j + 2) * (bigK - min(bigK, x[name_s])) / bigK -
+                                    wsp * (j + 1) / (i + j + 2) * (bigK - min(bigK, x[name_f])) / bigK), axis=1)
+                df_qsTree[namep_eff] = df_qsTree.apply(
+                    lambda x: objVals[i][j] - cC * ((bigK - min(bigK, x[name])) / bigK -
+                                                    wsp * (i + 1) / (i + j + 2) * (bigK - min(bigK, x[name_s])) / bigK -
+                                                    wsp * (j + 1) / (i + j + 2) * (bigK - min(bigK, x[name_f])) / bigK), axis=1)
+                # elif i == 0:
+                #     df_qsTree[namep] = df_qsTree.apply(
+                #         lambda x: cC * ((bigK - min(bigK, x[name])) / bigK -
+                #                         wsp * (j + 1) / (i + j + 2) * (bigK - min(bigK, x[name_f])) / bigK), axis=1)
+                # elif j == 0:
+                #     df_qsTree[namep] = df_qsTree.apply(
+                #         lambda x: cC * ((bigK - min(bigK, x[name])) / bigK -
+                #                         wsp * (i + 1) / (i + j + 2) * (bigK - min(bigK, x[name_s])) / bigK), axis=1)
+            elif i + j == (numState - 1):
+                df_qsTree[namep] = df_qsTree.apply(lambda x: cC * ((bigK - min(bigK, x[name])) / bigK -
+                                                                   wsp * (bigK - min(bigK, x[name])) / bigK), axis=1)
+                df_qsTree[namep_eff] = df_qsTree.apply(lambda x: objVals[i][j] - cC *
+                                                                 ((bigK - min(bigK, x[name])) / bigK -
+                                                                  wsp * (bigK - min(bigK, x[name])) / bigK), axis=1)
+
+        print(df_qsTree)
+        print("took " + str(time() - start)[:6])
+
+        plt.figure(figsize=(7, 5), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid(lw=1.1)
+        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(0,0)'].to_numpy(), color='green', label='State 0,0')
+        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(1,0)'].to_numpy(), color='red', label='State 1,0')
+        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(2,0)'].to_numpy(), color='blue', label='State 2,0')
+        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(1,1)'].to_numpy(), color='purple', label='State 1,1')
+        plt.ylabel('Match Rates')
+        plt.xlabel('Time')
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        plt.tight_layout()
+        plt.show()
+
+        plt.figure(figsize=(7, 5), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid(lw=1.1)
+        plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['OptPrice(0,0)'].to_numpy(), color='green', label='State 0,0')
+        plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['OptPrice(1,0)'].to_numpy(), color='red', label='State 1,0')
+        plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['OptPrice(2,0)'].to_numpy(), color='blue', label='State 2,0')
+        plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['OptPrice(1,1)'].to_numpy(), color='purple', label='State 1,1')
+        plt.ylabel('Optimal Price')
+        plt.xlabel('Time')
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        plt.tight_layout()
+        plt.show()
+
+        plt.figure(figsize=(7, 5), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid(lw=1.1)
+        plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['EffReward(0,0)'].to_numpy(), color='green', label='State 0,0')
+        plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['EffReward(1,0)'].to_numpy(), color='red', label='State 1,0')
+        plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['EffReward(2,0)'].to_numpy(), color='blue', label='State 2,0')
+        plt.plot(df_qsTree['Time'].to_numpy(), df_qsTree['EffReward(1,1)'].to_numpy(), color='purple', label='State 1,1')
+        plt.ylabel('Reward Adjusted Price')
+        plt.xlabel('Time')
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        plt.tight_layout()
+        plt.show()
 
     # plot_mass = ggplot(df_massTree) + aes(x='Time', y=['State(0,0)', 'State(0,1)', 'State(0,2)', 'State(1,0)',
     # 'State(1,1)', 'State(2,0)']) + geom_point(size=0.005)
@@ -1393,7 +1544,7 @@ def denemeSimulationLinear():
 
     TT = int(1e6)
     recordEvery = 10
-    optimalOrLocal = 'optimal'  # 'optimal' or 'local'
+    optimalOrLocal = 'local'  # 'optimal' or 'local'
     bigK = 1000
 
     track_mass, total_reward, track_queues = succfailLinear(numState, TT, workerArriveProbability, jobArriveProbability,
@@ -1538,7 +1689,7 @@ if __name__ == '__main__':
     # plotRatiosMu1Lambda(1)
     # exit()
 
-    denemeSimulationLinear()
+    # denemeSimulationLinear()
     # denemeSimulation()
 
     # (a,b): if total transitions is x, then prior at least needs to be sth like (1, x-1)
@@ -1557,15 +1708,15 @@ if __name__ == '__main__':
     # (beta 0.6, numTrans 9) k, (beta 0.5, numTrans 7) k, (beta 0.4, numTrans 6) k, (beta 0.3, numTrans 5) k
     # (beta 0.2, numTrans 4) k, (beta 0.1, numTrans 3) k
 
-    # beta_ = np.array([0.9])
+    beta_ = np.array([0.9])
     # priors go from (1,1) to whatever
     # for success-fail model, (a,b) holds for a fails and b successes
-    # numTrans_ = np.array([10])  # total no. of ratings that can be received, or total no. of transitions b4 reaching end
-    # rngStates__ = 5  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
-    # numPriors_ = 3 # should be very small for the general case, >2 state dimensions.
-    # for iij in range(len(beta_)):
-    #     mainSim(beta_[iij], numTrans_[iij], rngStates__, numPriors_, size=1e5, fullModel=False)
-    # exit()
+    numTrans_ = np.array([5])  # total no. of ratings that can be received, or total no. of transitions b4 reaching end
+    rngStates__ = 5  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
+    numPriors_ = 3 # should be very small for the general case, >2 state dimensions.
+    for iij in range(len(beta_)):
+        mainSim(beta_[iij], numTrans_[iij], rngStates__, numPriors_, size=1e5, fullModel=False)
+    exit()
 
 
     # beta_ = np.array([0.55, 0.65, 0.75, 0.85, 0.95])
