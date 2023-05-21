@@ -13,6 +13,7 @@ from pulp import *
 # simulation for the 1-dim feedback model
 def feedbackSim(n_state, T, workerArriveProb, jobArriveProb, beta, rewards, transitions, bigK, C, LOCAL_PRICES, perc,
                 extraPriceAdjustment):
+    # UPDATE ON 5.21.2023: This is using the transitions matrix as, element i,j is the prob of moving from i to j
     # initializations #
     recordAfter = T * perc / 100
     eps, counter_conv, tot_reward = 1e-4, 0, 0
@@ -63,15 +64,19 @@ def feedbackSim(n_state, T, workerArriveProb, jobArriveProb, beta, rewards, tran
                 if stay == 1:  # if the assigned worker is staying
                     move = random.uniform(0, 1)  # decide which way it will move
                     if assigned < (n_state - 1):
-                        if move <= transitions[assigned][0]:  # it moves forward
+                        if move <= transitions[assigned][assigned + 1]:  # it moves forward
+                        # if move <= transitions[assigned][0]:  # it moves forward
                             queue[assigned + 1] += 1
-                        elif (move > transitions[assigned][0]) & \
-                                (move <= transitions[assigned][0] + transitions[assigned][1]):
+                        elif (move > transitions[assigned][assigned + 1]) & \
+                                (move <= transitions[assigned][assigned + 1] + transitions[assigned][assigned]):
+                        # elif (move > transitions[assigned][0]) & \
+                        #         (move <= transitions[assigned][0] + transitions[assigned][1]):
                             queue[assigned] += 1
                         else:  # it moves backwards
                             queue[assigned - 1] += 1
                     else:  # if the assigned worker is in the last state
-                        if move <= transitions[assigned][0] + transitions[assigned][1]:  # remains
+                        if move <= transitions[assigned][assigned]:  # remains
+                        # if move <= transitions[assigned][0] + transitions[assigned][1]:  # remains
                             queue[assigned] += 1
                         else:  # it moves backwards
                             queue[assigned - 1] += 1
@@ -153,8 +158,8 @@ def feedbackFixedPoint(n, lambd, mu, transition, rewardMult, beta):
         force_slacks = rewardMult_sortedIndices[0:(include_until - 1)]
         for i in range(min(include_until, n)):  # give upper bounds of one for the states I want to include
             ubs[rewardMult_sortedIndices[i]] = mu
-        print(ubs)
-        print(force_slacks)
+        print("Upper bounds on masses", ubs)
+        print("Force", force_slacks, "to have zero slacks")
         soln, obj, res = feedbackOptFixedPoint(n, lambd, mu, ubs, transition, rewardMult, beta, force_slacks, 1)
         soln_b, obj_b, res_b = feedbackOptFixedPoint(n, lambd, mu, ubs, transition, rewardMult, beta, force_slacks, 0)
         soln_c, obj_c, res_c = feedbackOptFixedPoint(n, lambd, mu, ubs, transition, rewardMult, beta, force_slacks, -1)
@@ -242,12 +247,14 @@ def feedbackDualUseFixedPoint(n, lambd, mu, transitions, rewardMult, beta, x):
         soln[i] = value(g[i])
         obj += value(g[i]) * rhs[i]
     obj += value(alpha) * mu
-    print('Objective value is ', obj)
+    print('Dual objective value is ', obj)
     return soln
 
 
 # lp of the feedback model
 def feedbackOpt(n, lambd, mu, prevSoln, usePrevSoln, transitions, rewardMult, beta):
+    # first column of transitions is forward move, second column of transitions is remain
+    # third column of transitions is backward move
     m = LpProblem("p", LpMaximize)
     x = LpVariable.dicts("x", (range(n)), lowBound=0)
     m += lpSum([x[i] * rewardMult[i] for i in range(n)])
@@ -293,60 +300,84 @@ def feedbackOpt(n, lambd, mu, prevSoln, usePrevSoln, transitions, rewardMult, be
     return soln_sub, obj_, capacity
 
 
-def simModule(state, numsim):
-    keepRewards = np.zeros((numsim, 5))
-    printit = 0
+def simModuleLinear(state, numsim):   # to get the histograms of price deviations for ML-A and ML-B instances
+    keepRewards = np.zeros((numsim, 7))
+    vocal = False
     ss = 0
     while ss < numsim:
-        print("Iter ", ss + 1)
-        workerArrivalProb = 1  # random.uniform(0.15, 0.25)
-        jobArrivalProb = 1  # random.uniform(0.5, 0.75)
-        wsp = 1/2  # random.uniform(0.8, 0.98)
-        rewardMultipliers = [-0.5, 1]
-        cC = 2 * max(rewardMultipliers)
-        transition = np.zeros((state, 3))
-        transition[0][0] = 1
-        transition[1][1] = 1
-        extraPriceAdjustment = 0.75
-        ############################################################################################################
-        # rewardMultipliers = np.array(sorted(random.sample(range(10, 100), state), reverse=False))
-        # rewardMultipliers = rewardMultipliers / (max(rewardMultipliers) + min(rewardMultipliers))
-        # print(rewardMultipliers)
+        print("\nIteration", ss + 1, end=", ")
+        workerArrivalProb = random.uniform(0.15, 0.25)
+        jobArrivalProb = random.uniform(0.5, 0.75)
+        wsp = random.uniform(0.8, 0.98)
+        # rewardMultipliers = [-0.5, 1]
         # cC = 2 * max(rewardMultipliers)
         # transition = np.zeros((state, 3))
-        # for j in range(1, state):
-        #     rands = np.array(sorted(random.sample(range(1, 10), 3), reverse=True))
-        #     rands = rands / sum(rands)
-        #     transition[j][0], transition[j][1], transition[j][2] = rands[0], rands[1], rands[2]
-        # rands = np.array(sorted(random.sample(range(1, 10), 2), reverse=True))
-        # rands = rands / sum(rands)
-        # transition[0][0], transition[0][1] = rands[0], rands[1]
+        # transition[0][0] = 1
+        # transition[1][1] = 1
+        extraPriceAdjustment = 0 # 0.75
+        ############################################################################################################
+        rewardMultipliers = np.array(sorted(random.sample(range(10, 100), state), reverse=False))
+        rewardMultipliers = rewardMultipliers / (max(rewardMultipliers) + min(rewardMultipliers))
+        if vocal:
+            print("Rewards\n", rewardMultipliers)
+        else:
+            print("ML-A model!") if rewardMultipliers[0] < rewardMultipliers[1] else print("ML-B model!")
+        cC = 2 * max(rewardMultipliers)
+        transition = np.zeros((state, 3))
+        for j in range(1, state - 1):
+            rands = np.array(sorted(random.sample(range(1, 10), 3), reverse=True))
+            rands = rands / sum(rands)
+            transition[j][0], transition[j][1], transition[j][2] = rands[0], rands[1], rands[2]
+        rands = np.array(sorted(random.sample(range(1, 10), 2), reverse=True))
+        rands = rands / sum(rands)
+        transition[0][0], transition[0][1] = rands[0], rands[1]
+        rands = np.array(sorted(random.sample(range(1, 10), 2), reverse=True))
+        rands = rands / sum(rands)
+        transition[state - 1][1], transition[state - 1][2] = rands[0], rands[1]
+        # last state either remains or goes backward
+        # first state either remains or goes forward
+        ############################################################################################################
+        # now change transitions so that it's of size state X state and each element gives the movement from state
+        # i to state j
+        transitionProper = np.zeros((state, state))
+        # first column of transition is forward probs
+        for i in range(state - 1):
+            transitionProper[i][i + 1] = transition[i][0]
+        # second column of transition is remain probabilities
+        for i in range(state):
+            transitionProper[i][i] = transition[i][1]
+        # third column of transition is backward probabilities
+        for i in range(1, state):
+            transitionProper[i][i - 1] = transition[i][2]
+
+        # print(transition)
+        # print(transitionProper)
+        transition = transitionProper
+        # exit()
         ############################################################################################################
 
-
-        print(transition)
-        print("lambda is ", workerArrivalProb, ", mu is ", jobArrivalProb, " beta is ", wsp, "\n")
+        print("lambda", workerArrivalProb, ", mu", jobArrivalProb, " beta", wsp, "\n")
         # solve for the optimal
-        print("Optimal solution\n")
+        print("Optimal solution")
         optSoln, opt_obj_val, jobcon = feedbackOpt(state, workerArrivalProb, jobArrivalProb, np.zeros(state), False,
                                                    transition, rewardMultipliers, wsp)
         if jobcon > jobArrivalProb - 1e-8:
             # fixed point
-            print("Looking at the fixed point\n")
+            print("\nLooking at the fixed point\n")
             fixedPointSoln = feedbackFixedPoint(state, workerArrivalProb, jobArrivalProb, transition, rewardMultipliers,
                                                 wsp)
             obj_valFixedPoint = 0
             for i in range(state):
                 obj_valFixedPoint += fixedPointSoln[i] * rewardMultipliers[i]
 
-            print("Looking at the dual prices using fixed point\n")
+            print("Looking at the dual prices using fixed point")
             fixedPointDual = feedbackDualUseFixedPoint(state, workerArrivalProb, jobArrivalProb, transition,
                                                        rewardMultipliers, wsp, fixedPointSoln)
-            print(fixedPointDual)
+            print("fixedPointDual prices\n", fixedPointDual)
             maxDualPrice = max(fixedPointDual)
 
             # simulation
-            print("Doing the simulation")
+            print("\nDoing the simulation")
             timeHorz = 250000  # number of time periods of each instance
             percent = 80  # exclude the first percent many iterations for reward tracking
             bigK = 1e2
@@ -355,19 +386,22 @@ def simModule(state, numsim):
                                                                    percent, extraPriceAdjustment)
             df_qs = pd.DataFrame(total_queues, columns=['Time'.split() + ['State' + str(i) for i in range(state)]],
                                  dtype=float)
-            print("Final masses")
-            print(pathMass[-1])
-            print("\nFinal queue lengths")
-            print(df_qs)
+
+            if vocal:
+                print("Final masses, first column is time")
+                print(pathMass[-1])
+                print("\nFinal queue lengths and prices after shaving earlier parts off")
+            # print(df_qs)
             df_qs = df_qs.tail(int(timeHorz / 5))
-            print(df_qs)
+            # print(df_qs)
             for i in range(state):
                 name = 'State' + str(i)
                 df_qs[name] = df_qs[name].astype(int)
                 namep = 'Price' + str(i)
                 df_qs[namep] = df_qs.apply(lambda x: cC * (bigK - min(bigK, x[name])) / bigK, axis=1)
-            print(df_qs['Price0'])
-            print("Now the prices things")
+            if vocal:
+                print(df_qs)
+            print("\n The simulated prices")
             pricesFromSim = np.zeros(state)
             for i in range(state):
                 name = 'Price' + str(i)
@@ -375,7 +409,9 @@ def simModule(state, numsim):
                 # print(mid)
                 midd = mid[mid.columns[0]].values
                 # print(midd)
-                pricesFromSim[i] = statistics.mean(midd[-int((timeHorz * (1 - percent / 100)) / 2 - 1):])
+                if fixedPointDual[i] != 0:
+                    pricesFromSim[i] = statistics.mean(midd[-int((timeHorz * (1 - percent / 100)) / 2 - 1):])
+
             print(pricesFromSim)
             # print(fixedPointDual)
             # sth = False
@@ -385,22 +421,21 @@ def simModule(state, numsim):
             #     if sth:
             #         pricesFromSim[jj] = 0
             # print(pricesFromSim)
-            # diffprices = np.abs(fixedPointDual - pricesFromSim)
-            # maxdiff = diffprices.max()
+            diffprices = np.abs(fixedPointDual - pricesFromSim)
+            maxdiff = diffprices.max()
             # pos = np.argmax(diffprices, axis=None)
             keepRewards[ss][0] = opt_obj_val
             keepRewards[ss][1] = empirical_reward
-            # keepRewards[ss][2] = obj_valFixedPoint / opt_obj_val
-            # keepRewards[ss][3] = maxdiff / maxDualPrice
-            # keepRewards[ss][4] = pos
-            # if printit == 10:
-            print(keepRewards)
-            # printit = 0
-            # printit += 1
+            keepRewards[ss][2] = obj_valFixedPoint / opt_obj_val
+            keepRewards[ss][3] = maxdiff / maxDualPrice
+            keepRewards[ss][4] = workerArrivalProb
+            keepRewards[ss][5] = jobArrivalProb
+            keepRewards[ss][6] = wsp
             ss += 1
+            print(keepRewards[:ss,])
         else:
             print("\nIter ", ss + 1, " won't give a fixed point b/c the capacity constraint not tight, try again\n")
-    # np.savetxt("feedbackLMEvsOPTobjvalsAndPriceRatiosMLA-this.csv", keepRewards, delimiter=",")
+    np.savetxt("feedbackLMEvsOPTobjvalsAndPriceRatiosML.csv", keepRewards, delimiter=",")
 
 
 def main():
