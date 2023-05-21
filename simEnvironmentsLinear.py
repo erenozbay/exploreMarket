@@ -8,7 +8,7 @@ from copy import deepcopy
 import time
 import statistics
 from pulp import *
-
+import matplotlib.pyplot as plt
 
 # simulation for the 1-dim feedback model
 def feedbackSim(n_state, T, workerArriveProb, jobArriveProb, beta, rewards, transitions, bigK, C, LOCAL_PRICES, perc,
@@ -145,49 +145,72 @@ def feedbackOptFixedPoint(n, lambd, mu, bounds, transitions, rewardMult, beta, s
 
 
 # use fixed point alg
-def feedbackFixedPoint(n, lambd, mu, transition, rewardMult, beta):
+def feedbackFixedPoint(n, lambd, mu, transition, rewardMult, beta, verbal=True):
     # I need x_0 positive, so I can move things faster if I initially start with a setting where x_0 > 0 the first time
     rewardMult_sortedIndices = np.argsort(rewardMult)[::-1]
     # start with making everybody before, and including, 0 positive
     position_0 = np.where(rewardMult_sortedIndices == 0)[0][0]
     check_feasible = True
     include_until = position_0 + 1
-    soln, soln_b = 0, 0
+    soln, soln_b, soln_c = 0, 0, 0
+    returnObj = -100
+    returnSoln = np.zeros(n)
+
     while check_feasible & (include_until <= n + 1):  # solve for the variables until and including position_0
         ubs = np.zeros(n)
         force_slacks = rewardMult_sortedIndices[0:(include_until - 1)]
         for i in range(min(include_until, n)):  # give upper bounds of one for the states I want to include
             ubs[rewardMult_sortedIndices[i]] = mu
-        print("Upper bounds on masses", ubs)
-        print("Force", force_slacks, "to have zero slacks")
+        if verbal:
+            print("Upper bounds on masses", ubs)
+            print("Force", force_slacks, "to have zero slacks")
         soln, obj, res = feedbackOptFixedPoint(n, lambd, mu, ubs, transition, rewardMult, beta, force_slacks, 1)
         soln_b, obj_b, res_b = feedbackOptFixedPoint(n, lambd, mu, ubs, transition, rewardMult, beta, force_slacks, 0)
         soln_c, obj_c, res_c = feedbackOptFixedPoint(n, lambd, mu, ubs, transition, rewardMult, beta, force_slacks, -1)
         if not res:
-            print("Maximize sums of masses", obj, end="; ")
-            print(soln)
+            if verbal:
+                print("Maximize sums of masses", obj, end="; ")
+                print(soln)
+            if obj > returnObj:
+                returnObj = obj
+                returnSoln = soln
         else:
-            print("Maximize sums of masses infeasible")
-        print()
+            if verbal:
+                print("Maximize sums of masses infeasible")
+        if verbal:
+            print()
         if not res_b:
-            print("Minimize the slacks", obj_b, end="; ")
-            print(soln_b)
+            if verbal:
+                print("Minimize the slacks", obj_b, end="; ")
+                print(soln_b)
+            if obj_b > returnObj:
+                returnObj = obj_b
+                returnSoln = soln
         else:
-            print("Minimize the slacks infeasible")
-        print()
+            if verbal:
+                print("Minimize the slacks infeasible")
+        if verbal:
+            print()
         if not res_c:
-            print("Maximize the reward", obj_c, end="; ")
-            print(soln_c)
+            if verbal:
+                print("Maximize the reward", obj_c, end="; ")
+                print(soln_c)
+            if obj_c > returnObj:
+                returnObj = obj_c
+                returnSoln = soln
         else:
-            print("Maximize the reward infeasible")
-        print()
+            if verbal:
+                print("Maximize the reward infeasible")
+        if verbal:
+            print()
         include_until += 1
 
-    return soln
+    return returnSoln, returnObj
 
 
 # direct dual of the feedback model
-def feedbackDual(n, lambd, mu, transitions, rewardMult, beta):  # DUAL NEEDS TO BE FIXED HERE
+def feedbackDual(n, lambd, mu, transitions, rewardMult, beta):
+    # UPDATE ON 5.21.2023: This is using the transitions matrix as, element i,j is the prob of moving from i to j
     m = LpProblem("p", LpMinimize)
     g = LpVariable.dicts("gamma", (range(n)), lowBound=0)
     alpha = LpVariable("alpha", 0)
@@ -200,23 +223,22 @@ def feedbackDual(n, lambd, mu, transitions, rewardMult, beta):  # DUAL NEEDS TO 
 
     for j in range(n):
         if j == 0:
-            m += alpha >= g[0] * (beta * transitions[0][1] - 1) + g[1] * (beta * transitions[0][0]) + rewardMult[0]
+            m += alpha >= g[0] * (beta * transitions[0][0] - 1) + g[1] * (beta * transitions[0][1]) + rewardMult[0]
         elif j == (n - 1):
-            m += alpha >= g[n - 2] * (beta * transitions[n - 1][2]) + \
-                 g[n - 1] * (beta * (transitions[n - 1][0] + transitions[n - 1][1]) - 1) + rewardMult[n - 1]
+            m += alpha >= g[n - 2] * (beta * transitions[n - 1][n - 2]) + \
+                 g[n - 1] * (beta * transitions[n - 1][n - 1] - 1) + rewardMult[n - 1]
         else:
-            m += alpha >= g[j - 1] * (beta * transitions[j][2]) + g[j + 1] * (beta * transitions[j][0]) + \
-                 g[j] * (beta * transitions[j][1] - 1) + rewardMult[j]
+            m += alpha >= g[j - 1] * (beta * transitions[j][j - 1]) + g[j + 1] * (beta * transitions[j][j + 1]) + \
+                 g[j] * (beta * transitions[j][j] - 1) + rewardMult[j]
 
     # m.optimize()
     m.solve(PULP_CBC_CMD(msg=False))
 
-    print('Objective value is ', value(g[0]) * lambd + value(alpha) * mu)
+    print('Optimal dual objective value is ', value(g[0]) * lambd + value(alpha) * mu)
     for i in range(n):
-        print(value(g[i]), end=", ")
-    print()
-    print(value(alpha))
-    print()
+        print(value(g[i]), end="")
+        print(", ", end="") if i < n - 1 else print(".")
+    print("alpha", value(alpha))
     soln = np.zeros(n)
     for i in range(n):
         soln[i] = value(g[i])
@@ -230,7 +252,7 @@ def feedbackDualUseFixedPoint(n, lambd, mu, transitions, rewardMult, beta, x):
     rhs[n - 1] = beta * transitions[n - 2][n - 1] * x[n - 2] + beta * transitions[n - 1][n - 1] * x[n - 1]
     for j in range(1, n - 1):
         rhs[j] = beta * transitions[j - 1][j] * x[j - 1] + beta * transitions[j][j] * x[j] + \
-                 beta * transitions[j + 1][j - 1] * x[j + 1]
+                 beta * transitions[j + 1][j] * x[j + 1]
 
     m = LpProblem("p", LpMinimize)
     g = LpVariable.dicts("gamma", (range(n)), lowBound=0)
@@ -247,14 +269,12 @@ def feedbackDualUseFixedPoint(n, lambd, mu, transitions, rewardMult, beta, x):
         soln[i] = value(g[i])
         obj += value(g[i]) * rhs[i]
     obj += value(alpha) * mu
-    print('Dual objective value is ', obj)
+    print('Dual objective value is ', obj, 'dual solution alpha is', value(alpha))
     return soln
 
 
 # lp of the feedback model
 def feedbackOpt(n, lambd, mu, prevSoln, usePrevSoln, transitions, rewardMult, beta):
-    # first column of transitions is forward move, second column of transitions is remain
-    # third column of transitions is backward move
     m = LpProblem("p", LpMaximize)
     x = LpVariable.dicts("x", (range(n)), lowBound=0)
     m += lpSum([x[i] * rewardMult[i] for i in range(n)])
@@ -300,15 +320,31 @@ def feedbackOpt(n, lambd, mu, prevSoln, usePrevSoln, transitions, rewardMult, be
     return soln_sub, obj_, capacity
 
 
-def simModuleLinear(state, numsim):   # to get the histograms of price deviations for ML-A and ML-B instances
+def simModuleLinear(state, numsim, workerArrivalProb = 1, jobArrivalProb = 1, wsp = 0.99):   # to get the histograms of price deviations for ML-A and ML-B instances
+    willPrint = False
+    wantToPlot = True
+    if numsim > 10:
+        willPrint = True
+        print("Will print results to a csv.")
     keepRewards = np.zeros((numsim, 7))
     vocal = False
+    MLmodel = "A" # "A" or "B"
+    objThing = False
+    if MLmodel == "B":
+        objThing = True
+    if objThing:
+        print("Must be doing ML-B.")
+    else:
+        print("Must be doing ML-A.")
     ss = 0
     while ss < numsim:
         print("\nIteration", ss + 1, end=", ")
-        workerArrivalProb = random.uniform(0.15, 0.25)
-        jobArrivalProb = random.uniform(0.5, 0.75)
-        wsp = random.uniform(0.8, 0.98)
+        if numsim > 1:
+            workerArrivalProb = random.uniform(0.15, 0.25)
+        if numsim > 1:
+            jobArrivalProb = random.uniform(0.5, 0.75)
+        if numsim > 1:
+            wsp = random.uniform(0.8, 0.98)
         # rewardMultipliers = [-0.5, 1]
         # cC = 2 * max(rewardMultipliers)
         # transition = np.zeros((state, 3))
@@ -316,10 +352,11 @@ def simModuleLinear(state, numsim):   # to get the histograms of price deviation
         # transition[1][1] = 1
         extraPriceAdjustment = 0 # 0.75
         ############################################################################################################
-        rewardMultipliers = np.array(sorted(random.sample(range(10, 100), state), reverse=False))
+        rewardMultipliers = np.array(sorted(random.sample(range(10, 100), state), reverse=objThing))
         rewardMultipliers = rewardMultipliers / (max(rewardMultipliers) + min(rewardMultipliers))
         if vocal:
             print("Rewards\n", rewardMultipliers)
+            print("ML-A model!") if rewardMultipliers[0] < rewardMultipliers[1] else print("ML-B model!")
         else:
             print("ML-A model!") if rewardMultipliers[0] < rewardMultipliers[1] else print("ML-B model!")
         cC = 2 * max(rewardMultipliers)
@@ -361,16 +398,18 @@ def simModuleLinear(state, numsim):   # to get the histograms of price deviation
         print("Optimal solution")
         optSoln, opt_obj_val, jobcon = feedbackOpt(state, workerArrivalProb, jobArrivalProb, np.zeros(state), False,
                                                    transition, rewardMultipliers, wsp)
+        optDualSoln = feedbackDual(state, workerArrivalProb, jobArrivalProb, transition, rewardMultipliers, wsp)
         if jobcon > jobArrivalProb - 1e-8:
             # fixed point
-            print("\nLooking at the fixed point\n")
-            fixedPointSoln = feedbackFixedPoint(state, workerArrivalProb, jobArrivalProb, transition, rewardMultipliers,
-                                                wsp)
-            obj_valFixedPoint = 0
-            for i in range(state):
-                obj_valFixedPoint += fixedPointSoln[i] * rewardMultipliers[i]
+            print("\nLooking at the fixed point")
+            fixedPointSoln, obj_valFixedPoint = feedbackFixedPoint(state, workerArrivalProb, jobArrivalProb,
+                                                                   transition, rewardMultipliers, wsp, verbal=False)
+            print("LME/OPT is", obj_valFixedPoint / opt_obj_val)
+            # obj_valFixedPoint = 0
+            # for i in range(state):
+            #     obj_valFixedPoint += fixedPointSoln[i] * rewardMultipliers[i]
 
-            print("Looking at the dual prices using fixed point")
+            print("Looking at the dual prices using fixed point\nfeeding the solution", fixedPointSoln)
             fixedPointDual = feedbackDualUseFixedPoint(state, workerArrivalProb, jobArrivalProb, transition,
                                                        rewardMultipliers, wsp, fixedPointSoln)
             print("fixedPointDual prices\n", fixedPointDual)
@@ -379,8 +418,8 @@ def simModuleLinear(state, numsim):   # to get the histograms of price deviation
             # simulation
             print("\nDoing the simulation")
             timeHorz = 250000  # number of time periods of each instance
-            percent = 80  # exclude the first percent many iterations for reward tracking
-            bigK = 1e2
+            percent = 90  # exclude the first percent many iterations for reward tracking
+            bigK = 1e3
             pathMass, empirical_reward, total_queues = feedbackSim(state, timeHorz, workerArrivalProb, jobArrivalProb,
                                                                    wsp, rewardMultipliers, transition, bigK, cC, True,
                                                                    percent, extraPriceAdjustment)
@@ -403,16 +442,20 @@ def simModuleLinear(state, numsim):   # to get the histograms of price deviation
                 print(df_qs)
             print("\n The simulated prices")
             pricesFromSim = np.zeros(state)
+            pricesFromSimActual = np.zeros(state)
             for i in range(state):
-                name = 'Price' + str(i)
+                name = 'State' + str(i)  # 'Price' + str(i)
                 mid = df_qs[name]
                 # print(mid)
                 midd = mid[mid.columns[0]].values
                 # print(midd)
+                # pricesFromSimActual[i] = statistics.mean(midd[-int((timeHorz * (1 - percent / 100)) / 2 - 1):])
+                pricesFromSimActual[i] = cC * (1 - min(1, statistics.mean(midd[-int((timeHorz * (1 - percent / 100)) / 2 - 1):]) / bigK))
                 if fixedPointDual[i] != 0:
-                    pricesFromSim[i] = statistics.mean(midd[-int((timeHorz * (1 - percent / 100)) / 2 - 1):])
+                    pricesFromSim[i] = pricesFromSimActual[i]
 
-            print(pricesFromSim)
+            print("Actual prices from simulation", pricesFromSimActual)
+            print("Prices I will use to compare the LME", pricesFromSim)
             # print(fixedPointDual)
             # sth = False
             # for jj in range(state):
@@ -433,9 +476,30 @@ def simModuleLinear(state, numsim):   # to get the histograms of price deviation
             keepRewards[ss][6] = wsp
             ss += 1
             print(keepRewards[:ss,])
+            if wantToPlot and keepRewards[ss - 1][3] > 0.2:
+                plt.figure(figsize=(7, 5), dpi=100)
+                plt.rc('axes', axisbelow=True)
+                plt.grid(lw=1.1)
+                plt.plot(df_qs['Time'].to_numpy(), df_qs['Price0'].to_numpy(), color='green',
+                         label='State 0')
+                plt.plot(df_qs['Time'].to_numpy(), df_qs['Price1'].to_numpy(), color='red',
+                         label='State 1')
+                plt.plot(df_qs['Time'].to_numpy(), df_qs['Price2'].to_numpy(), color='blue',
+                         label='State 2')
+                plt.plot(df_qs['Time'].to_numpy(), df_qs['Price3'].to_numpy(), color='purple',
+                         label='State 3')
+                plt.ylabel('Prices')
+                plt.xlabel('Time')
+                plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+                plt.tight_layout()
+                # plt.show()
+                plt.savefig("newFeedbackFigs/instance" + str(ss - 1) + "_priceRatio" + str(keepRewards[ss - 1][3])[:6], format='eps', bbox_inches='tight')
+                plt.cla()
         else:
             print("\nIter ", ss + 1, " won't give a fixed point b/c the capacity constraint not tight, try again\n")
-    np.savetxt("feedbackLMEvsOPTobjvalsAndPriceRatiosML.csv", keepRewards, delimiter=",")
+    if willPrint:
+        np.savetxt("feedbackLMEvsOPTobjvalsAndPriceRatiosML-" + MLmodel + "_" + str(numsim) + "sims" +
+                   ".csv", keepRewards, delimiter=",")
 
 
 def main():
