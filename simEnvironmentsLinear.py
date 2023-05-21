@@ -323,7 +323,7 @@ def feedbackOpt(n, lambd, mu, prevSoln, usePrevSoln, transitions, rewardMult, be
 def simModuleLinear(state, numsim, workerArrivalProb = 1, jobArrivalProb = 1, wsp = 0.99):   # to get the histograms of price deviations for ML-A and ML-B instances
     willPrint = False
     wantToPlot = True
-    if numsim > 10:
+    if numsim > 5:
         willPrint = True
         print("Will print results to a csv.")
     keepRewards = np.zeros((numsim, 7))
