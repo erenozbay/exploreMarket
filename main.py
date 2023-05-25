@@ -1683,8 +1683,18 @@ def denemeSimulationLinear():
 
 if __name__ == '__main__':
 
-    simModuleLinear(5, 100)
+    # plotRatios_betaModel("mu")
+    # exit()
+
+    # simModulePriorsChange(10, 1)
+    # exit()
+
+
+    # Eren used plotRatios_likeCDF and simModuleLinear on 5.24.2023 to create the ML figures in the thesis
+    plotRatios_likeCDF()
     exit()
+    # simModuleLinear(5, 200)#, 0.2017818274585373 , 0.5293921710756335, 0.8660037919295616)
+    # exit()
 
     # plot
     # plotRatios(9)  # argument is either 7 or 9, for \lambda = (1-\beta) / 0.7 or divided by 0.9, respectively
@@ -1711,10 +1721,10 @@ if __name__ == '__main__':
     # (beta 0.6, numTrans 9) k, (beta 0.5, numTrans 7) k, (beta 0.4, numTrans 6) k, (beta 0.3, numTrans 5) k
     # (beta 0.2, numTrans 4) k, (beta 0.1, numTrans 3) k
 
-    beta_ = np.array([0.7, 0.8, 0.9])
+    beta_ = np.array([0.4])
     # priors go from (1,1) to whatever
     # for success-fail model, (a,b) holds for a fails and b successes
-    numTrans_ = np.array([6, 6, 6])  # total no. of ratings that can be received, or total no. of transitions b4 reaching end
+    numTrans_ = np.array([8])#, 10, 10])  # total no. of ratings that can be received, or total no. of transitions b4 reaching end
     rngStates__ = 5  # keep this as 5 for 5 star rating, if it's 2 then you have the beta-bernoulli model
     numPriors_ = 3 # should be very small for the general case, >2 state dimensions.
     for iij in range(len(beta_)):

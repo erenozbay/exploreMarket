@@ -11,8 +11,8 @@ from pulp import *
 import matplotlib.pyplot as plt
 
 # simulation for the 1-dim feedback model
-def feedbackSim(n_state, T, workerArriveProb, jobArriveProb, beta, rewards, transitions, bigK, C, LOCAL_PRICES, perc,
-                extraPriceAdjustment):
+def feedbackSim(n_state, T, workerArriveProb, jobArriveProb, beta, rewards, transitions, bigK, C, LOCAL_PRICES=True,
+                perc = 80, extraPriceAdjustment = 0):
     # UPDATE ON 5.21.2023: This is using the transitions matrix as, element i,j is the prob of moving from i to j
     # initializations #
     recordAfter = T * perc / 100
@@ -28,24 +28,19 @@ def feedbackSim(n_state, T, workerArriveProb, jobArriveProb, beta, rewards, tran
             maxval = 0
             for i in range(n_state):
                 if LOCAL_PRICES:
-                    # price = (1 / (queue[i] + eps))
                     price = (bigK - min(bigK, queue[i])) / bigK
                 # if using optimal prices
                 else:
                     if i == 0:
-                        # price = (1 / (queue[0] + eps)) - beta * (transitions[0][0] * (1 / (queue[1] + eps)))
-                        price = (bigK - min(bigK, queue[0])) / bigK - \
-                                beta * transitions[0][0] * (bigK - min(bigK, queue[1])) / bigK
+                        price = (1 - beta * transitions[0][0]) * (bigK - min(bigK, queue[0])) / bigK - \
+                                beta * transitions[0][1] * (bigK - min(bigK, queue[1])) / bigK
                     elif i == (n_state - 1):
-                        # price = (1 / (queue[i] + eps)) - beta * (transitions[i][2] * (1 / (queue[i - 1] + eps)))
-                        price = (bigK - min(bigK, queue[i])) / bigK - \
-                                beta * transitions[i][2] * (bigK - min(bigK, queue[i - 1])) / bigK
+                        price = (1 - beta * transitions[i][i]) * (bigK - min(bigK, queue[i])) / bigK - \
+                                beta * transitions[i][i - 1] * (bigK - min(bigK, queue[i - 1])) / bigK
                     else:
-                        # price = (1 / (queue[i] + eps)) - beta * (transitions[i][0] * (1 / (queue[i + 1] + eps))) \
-                        #         - beta * (transitions[i][2] * (1 / (queue[i - 1] + eps)))
-                        price = (bigK - min(bigK, queue[i])) / bigK - \
-                                beta * transitions[i][0] * (bigK - min(bigK, queue[i + 1])) / bigK - \
-                                beta * transitions[i][2] * (bigK - min(bigK, queue[i - 1])) / bigK
+                        price = (1 - beta * transitions[i][i]) * (bigK - min(bigK, queue[i])) / bigK - \
+                                beta * transitions[i][i + 1] * (bigK - min(bigK, queue[i + 1])) / bigK - \
+                                beta * transitions[i][i - 1] * (bigK - min(bigK, queue[i - 1])) / bigK
                 if (maxval < (rewards[i] - C * price + extraPriceAdjustment * (1 - i))) & (queue[i] > 0):
                     maxval = rewards[i] - C * price + extraPriceAdjustment * (1 - i)
                     assigned = i
@@ -321,14 +316,15 @@ def feedbackOpt(n, lambd, mu, prevSoln, usePrevSoln, transitions, rewardMult, be
 
 
 def simModuleLinear(state, numsim, workerArrivalProb = 1, jobArrivalProb = 1, wsp = 0.99):   # to get the histograms of price deviations for ML-A and ML-B instances
-    willPrint = False
-    wantToPlot = True
+    willPrint = False  # for printing result to a csv
+    vocal = True  # for printing extra information about each instance
+    wantToPlot = True  # plotting prices (and saving them)
+    MLmodel = "B" # "A" or "B" ; to pick the ordering of the rewards
+
     if numsim > 5:
         willPrint = True
         print("Will print results to a csv.")
-    keepRewards = np.zeros((numsim, 7))
-    vocal = False
-    MLmodel = "A" # "A" or "B"
+    keepRewards = np.zeros((numsim + 10, 8))
     objThing = False
     if MLmodel == "B":
         objThing = True
@@ -336,6 +332,8 @@ def simModuleLinear(state, numsim, workerArrivalProb = 1, jobArrivalProb = 1, ws
         print("Must be doing ML-B.")
     else:
         print("Must be doing ML-A.")
+
+
     ss = 0
     while ss < numsim:
         print("\nIteration", ss + 1, end=", ")
@@ -388,7 +386,8 @@ def simModuleLinear(state, numsim, workerArrivalProb = 1, jobArrivalProb = 1, ws
             transitionProper[i][i - 1] = transition[i][2]
 
         # print(transition)
-        # print(transitionProper)
+        if vocal:
+            print("Transitions\n", transitionProper)
         transition = transitionProper
         # exit()
         ############################################################################################################
@@ -398,10 +397,10 @@ def simModuleLinear(state, numsim, workerArrivalProb = 1, jobArrivalProb = 1, ws
         print("Optimal solution")
         optSoln, opt_obj_val, jobcon = feedbackOpt(state, workerArrivalProb, jobArrivalProb, np.zeros(state), False,
                                                    transition, rewardMultipliers, wsp)
-        optDualSoln = feedbackDual(state, workerArrivalProb, jobArrivalProb, transition, rewardMultipliers, wsp)
+        # optDualSoln = feedbackDual(state, workerArrivalProb, jobArrivalProb, transition, rewardMultipliers, wsp)
         if jobcon > jobArrivalProb - 1e-8:
             # fixed point
-            print("\nLooking at the fixed point")
+            print("\nLooking at the fixed point", end=", ")
             fixedPointSoln, obj_valFixedPoint = feedbackFixedPoint(state, workerArrivalProb, jobArrivalProb,
                                                                    transition, rewardMultipliers, wsp, verbal=False)
             print("LME/OPT is", obj_valFixedPoint / opt_obj_val)
@@ -409,10 +408,10 @@ def simModuleLinear(state, numsim, workerArrivalProb = 1, jobArrivalProb = 1, ws
             # for i in range(state):
             #     obj_valFixedPoint += fixedPointSoln[i] * rewardMultipliers[i]
 
-            print("Looking at the dual prices using fixed point\nfeeding the solution", fixedPointSoln)
+            print("Dual prices using FP with the solution", fixedPointSoln)
             fixedPointDual = feedbackDualUseFixedPoint(state, workerArrivalProb, jobArrivalProb, transition,
                                                        rewardMultipliers, wsp, fixedPointSoln)
-            print("fixedPointDual prices\n", fixedPointDual)
+            print("fixedPointDual prices", fixedPointDual)
             maxDualPrice = max(fixedPointDual)
 
             # simulation
@@ -451,11 +450,29 @@ def simModuleLinear(state, numsim, workerArrivalProb = 1, jobArrivalProb = 1, ws
                 # print(midd)
                 # pricesFromSimActual[i] = statistics.mean(midd[-int((timeHorz * (1 - percent / 100)) / 2 - 1):])
                 pricesFromSimActual[i] = cC * (1 - min(1, statistics.mean(midd[-int((timeHorz * (1 - percent / 100)) / 2 - 1):]) / bigK))
-                if fixedPointDual[i] != 0:
-                    pricesFromSim[i] = pricesFromSimActual[i]
+                if MLmodel == 'A':
+                    if fixedPointDual[i] != 0:
+                        pricesFromSim[i] = pricesFromSimActual[i]
+
+            print("Doing ML-B pricing trick!!")
+            if MLmodel == 'B':
+                enter = True
+                index = -1
+                interim = -1e4
+                for i in range(state):
+                    if fixedPointDual[i] == 0 and enter:
+                        enter = False
+                        interim = pricesFromSimActual[i]
+                        index = i
+                for i in range(index + 1):
+                    pricesFromSim[i] = pricesFromSimActual[i] - interim
+
+
+
 
             print("Actual prices from simulation", pricesFromSimActual)
             print("Prices I will use to compare the LME", pricesFromSim)
+            print("State rewards", rewardMultipliers)
             # print(fixedPointDual)
             # sth = False
             # for jj in range(state):
@@ -474,9 +491,10 @@ def simModuleLinear(state, numsim, workerArrivalProb = 1, jobArrivalProb = 1, ws
             keepRewards[ss][4] = workerArrivalProb
             keepRewards[ss][5] = jobArrivalProb
             keepRewards[ss][6] = wsp
+            keepRewards[ss][7] = ss + 1  # index
             ss += 1
-            print(keepRewards[:ss,])
-            if wantToPlot and keepRewards[ss - 1][3] > 0.2:
+            print(keepRewards[max(0, ss - 5):ss,])
+            if wantToPlot and keepRewards[ss - 1][3] > 0.5:
                 plt.figure(figsize=(7, 5), dpi=100)
                 plt.rc('axes', axisbelow=True)
                 plt.grid(lw=1.1)
@@ -486,20 +504,71 @@ def simModuleLinear(state, numsim, workerArrivalProb = 1, jobArrivalProb = 1, ws
                          label='State 1')
                 plt.plot(df_qs['Time'].to_numpy(), df_qs['Price2'].to_numpy(), color='blue',
                          label='State 2')
-                plt.plot(df_qs['Time'].to_numpy(), df_qs['Price3'].to_numpy(), color='purple',
-                         label='State 3')
+                # plt.plot(df_qs['Time'].to_numpy(), df_qs['Price3'].to_numpy(), color='purple',
+                #          label='State 3')
+                plt.ylabel('Prices')
+                plt.xlabel('Time')
+                plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+                plt.tight_layout()
+                # plt.savefig("newFeedbackFigs/instance" + str(ss - 1) + "_priceRatio" + str(keepRewards[ss - 1][3])[:6]
+                #             + "_" + str(state) + "states.eps", format='eps', bbox_inches='tight')
+                plt.show()
+                plt.cla()
+
+                # use optimal prices and check performance
+                print("Doing optimal pricing simulation.")
+                _, _, total_queues = feedbackSim(state, timeHorz, workerArrivalProb, jobArrivalProb, wsp,
+                                                 rewardMultipliers, transition, bigK, cC, False)
+                df_qs = pd.DataFrame(total_queues, columns=['Time'.split() + ['State' + str(i) for i in range(state)]],
+                                     dtype=float)
+                for i in range(state):
+                    name = 'State' + str(i)
+
+                    name_forward = 'State' + str(i + 1)
+                    name_backward = 'State' + str(i - 1)
+                    namep = 'Price' + str(i)
+
+                    if 0 < i < state - 1:
+                        df_qs[namep] = df_qs.apply(
+                            lambda x: cC * ((1 - wsp * transition[i][i]) * (bigK - min(bigK, x[name])) / bigK -
+                                            wsp * transition[i][i + 1] * (bigK - min(bigK, x[name_forward])) / bigK -
+                                            wsp * transition[i][i - 1] * (bigK - min(bigK, x[name_backward])) / bigK),
+                            axis=1)
+                    elif i == 0:
+                        df_qs[namep] = df_qs.apply(
+                            lambda x: cC * ((1 - wsp * transition[i][i]) * (bigK - min(bigK, x[name])) / bigK -
+                                            wsp * transition[i][i + 1] * (bigK - min(bigK, x[name_forward])) / bigK),
+                            axis=1)
+                    elif i == state - 1:
+                        df_qs[namep] = df_qs.apply(
+                            lambda x: cC * ((1 - wsp * transition[i][i]) * (bigK - min(bigK, x[name])) / bigK -
+                                            wsp * transition[i][i - 1] * (bigK - min(bigK, x[name_backward])) / bigK),
+                            axis=1)
+                plt.figure(figsize=(7, 5), dpi=100)
+                plt.rc('axes', axisbelow=True)
+                plt.grid(lw=1.1)
+                plt.plot(df_qs['Time'].to_numpy(), df_qs['Price0'].to_numpy(), color='green',
+                         label='State 0')
+                plt.plot(df_qs['Time'].to_numpy(), df_qs['Price1'].to_numpy(), color='red',
+                         label='State 1')
+                plt.plot(df_qs['Time'].to_numpy(), df_qs['Price2'].to_numpy(), color='blue',
+                         label='State 2')
+                # plt.plot(df_qs['Time'].to_numpy(), df_qs['Price3'].to_numpy(), color='purple',
+                #          label='State 3')
                 plt.ylabel('Prices')
                 plt.xlabel('Time')
                 plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
                 plt.tight_layout()
                 # plt.show()
-                plt.savefig("newFeedbackFigs/instance" + str(ss - 1) + "_priceRatio" + str(keepRewards[ss - 1][3])[:6], format='eps', bbox_inches='tight')
+                # plt.savefig("newFeedbackFigs/instance" + str(ss - 1) + "_OptPrices_" + str(state) + "states.eps",
+                #             format='eps', bbox_inches='tight')
+                plt.show()
                 plt.cla()
         else:
             print("\nIter ", ss + 1, " won't give a fixed point b/c the capacity constraint not tight, try again\n")
     if willPrint:
-        np.savetxt("feedbackLMEvsOPTobjvalsAndPriceRatiosML-" + MLmodel + "_" + str(numsim) + "sims" +
-                   ".csv", keepRewards, delimiter=",")
+        np.savetxt("feedbackLMEvsOPTobjvalsAndPriceRatiosML-" + MLmodel + "_" + str(numsim) + "sims_" + str(state) +
+                   "states.csv", keepRewards, delimiter=",")
 
 
 def main():

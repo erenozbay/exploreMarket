@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import FormatStrFormatter
-
+import matplotlib.ticker as mtick
 
 def plotRatiosMu1Lambda(oneOrHalf):
     if oneOrHalf == 1:
@@ -64,6 +64,69 @@ def plotRatiosMu1Lambda(oneOrHalf):
     plt.savefig(title, format='eps', bbox_inches='tight')
     # plt.show()
     plt.cla()
+
+def plotRatios_likeCDF():  # for CDF-like plots, use vals and edges
+    # divideBy = betaVal
+    filename = 'newFeedbackFigs/feedbackLMEvsOPTobjvalsAndPriceRatiosMLB_200sims_5states_priceDevs.csv'
+    priceDev_B = pd.read_csv(filename).to_numpy()
+    filename = 'newFeedbackFigs/feedbackLMEvsOPTobjvalsAndPriceRatiosMLB_200sims_5states_rewards.csv'
+    rews_B = pd.read_csv(filename).to_numpy()
+    filename = 'newFeedbackFigs/feedbackLMEvsOPTobjvals_PriceRatiosMLA_200sims_last10Percent_priceDevs.csv'
+    priceDev_A = pd.read_csv(filename).to_numpy()
+    filename = 'newFeedbackFigs/feedbackLMEvsOPTobjvals_PriceRatiosMLA_200sims_last10Percent_rewards.csv'
+    rews_A = pd.read_csv(filename).to_numpy()
+
+    use = rews_B
+    # print(priceDev_B)
+    title = 'rews_B.eps'
+    xlab = 'Ratio of simulated and optimal rewards' #'Price Deviation (%)' #
+    ylab = 'Ratio'
+    # generate bins and bin edges
+    vals, edges = np.histogram(use, bins=200)
+    # cumsum and normalize to get cdf rather than pdf
+    vals = np.cumsum(vals)
+    vals = vals / vals[-1]
+    # convert bin edges to bin centers
+    edges = (edges[:-1] + edges[1:]) / 2
+    print(edges)
+    print(vals)
+    plt.figure(figsize=(8, 6), dpi=100)
+    plt.grid(axis="y")
+    lineWidth = 2.5
+    plt.plot(edges, vals, color='b', linewidth=lineWidth)
+    plt.axvline(x=np.mean(use), linestyle='dashed', color='r', linewidth=lineWidth * 0.8)
+    plt.gca().xaxis.set_major_formatter(mtick.PercentFormatter(xmax=1.0))
+    plt.xticks(fontsize=15)  #np.array([.97, 1, 1.03]),
+    plt.yticks(fontsize=15)
+
+    # xt = plt.gca().get_xticks()
+    # xt = np.append(xt, np.mean(priceDev_B))
+    #
+    # xtl = xt.tolist()
+    # xtl[-1] = str(np.mean(priceDev_B))[2] + "%"
+    # plt.gca().set_xticks(xt)
+    # plt.gca().set_xticklabels(xtl)
+
+    plt.xlabel(xlab, fontsize=16)
+    plt.ylabel(ylab, fontsize=16)
+    # if divideBy == 9:
+    #     plt.xticks(np.arange(0.9995, 1.0001, 0.0001))
+    #     # plt.text(np.mean(ratios), 0, str(np.mean(ratios))[:7], rotation=90)
+    #     # plt.xlim(0.999, 1.0001)
+    # elif divideBy == 7:
+    #     plt.xticks(np.arange(0.9975, 1.0002, 0.0005))
+        # plt.text(np.mean(ratios), 0, str(np.mean(ratios))[:7], rotation=90)
+        # plt.xlim(0.9972, 1.0001)
+    # plt.ylabel('', fontsize=14)
+    # plt.title('Ratio of Worst LME Reward to OPT Reward', fontsize=13)
+
+
+
+    # plt.savefig(title, format='eps', bbox_inches='tight')
+    plt.show()
+    plt.cla()
+
+
 
 def plotRatios(betaVal):
     divideBy = betaVal
@@ -135,3 +198,101 @@ def plotRatiosGrouped(betaVal):
     plt.savefig(title, format='eps', bbox_inches='tight')
     plt.show()
     plt.cla()
+
+def plotRatios_betaModel(across):
+    if across == "priors":
+        filename = 'forFigs3point7_inThesis/binaryBetaModel_5priors.csv'
+        ratios = pd.read_csv(filename).to_numpy()
+        LME_OPT = np.flip(ratios[:, 0])
+        sim_OPT = np.flip(ratios[:, 1])
+        print(ratios)
+        print(LME_OPT)
+        print(sim_OPT)
+        # exit()
+        # grouped = {}
+        # labels = {}
+        # for i in range(8):
+        #     grouped['beta_0' + str(i + 1)] = ratios[(i * 100):((i + 1) * 100)]
+        #     labels[str(i)] = r"$\beta$ = 0." + str(i + 1)
+
+        plt.figure(figsize=(8, 6), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid()
+
+        muVals = np.arange(1, 10) + 0.1
+
+        plt.plot(muVals, LME_OPT, label='LME / OPT',
+                 color='r', marker='o', markersize=5.5, linewidth=2.6)
+        plt.plot(muVals, sim_OPT, label='Sim. / OPT',
+                 color='blue', marker='o', markersize=5.5, linewidth=2.6)
+
+        # for i in range(8):
+        #     plt.scatter(np.arange(i * 100 + 1 + 20 * i * (i > 0), (i + 1) * 100 + 1 + 20 * i * (i > 0)),
+        #                 grouped['beta_0' + str(i + 1)], s=12, label=labels[str(i)])
+        plt.xlabel(r"$\mu$", fontsize=20)
+        plt.ylabel('Ratio', fontsize=20)
+        plt.xticks(muVals, fontsize=16)  # np.array([.97, 1, 1.03]),
+        plt.yticks(fontsize=16)
+        plt.ylim(bottom=0.93, top=1.005)
+        # plt.gca().axes.get_xaxis().set_ticks([])
+        # if divideBy == 9:
+        #     plt.yticks(np.arange(0.9995, 1.0001, 0.0001))
+        #     plt.ylim(bottom=0.9994)
+        # elif divideBy == 7:
+        #     plt.yticks(np.arange(0.9975, 1.0001, 0.0005))
+            # plt.ylim(bottom=0.9994)
+        # plt.title('Ratio of Worst LME Reward to OPT Reward', fontsize=13)
+        # title = 'ratiosGroupedFor' + str(divideBy) + '.eps'
+        plt.legend(loc="lower right", prop={'size': 16})  # , bbox_to_anchor=(1, 1))
+
+        plt.savefig('acrossPriors.eps', format='eps', bbox_inches='tight')
+        plt.show()
+        plt.cla()
+    elif across == "mu":
+        filename = 'forFigs3point7_inThesis/binaryBetaModel_perPrior.csv'
+        ratios = pd.read_csv(filename).to_numpy()
+        LME_OPT = ratios[:, 0]
+        sim_OPT = ratios[:, 1]
+        print(ratios)
+        print(LME_OPT)
+        print(sim_OPT)
+        # exit()
+        # grouped = {}
+        # labels = {}
+        # for i in range(8):
+        #     grouped['beta_0' + str(i + 1)] = ratios[(i * 100):((i + 1) * 100)]
+        #     labels[str(i)] = r"$\beta$ = 0." + str(i + 1)
+
+        plt.figure(figsize=(8, 6), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid()
+
+        muVals = ['(1,1)', '(1,2)', '(1,3)', '(1,4)', '(1,5)']
+
+        plt.plot(muVals, LME_OPT, label='LME / OPT',
+                 color='r', marker='o', markersize=5.5, linewidth=2.6)
+        plt.plot(muVals, sim_OPT, label='Sim. / OPT',
+                 color='blue', marker='o', markersize=5.5, linewidth=2.6)
+
+        # for i in range(8):
+        #     plt.scatter(np.arange(i * 100 + 1 + 20 * i * (i > 0), (i + 1) * 100 + 1 + 20 * i * (i > 0)),
+        #                 grouped['beta_0' + str(i + 1)], s=12, label=labels[str(i)])
+        plt.xlabel(r"$\mu$", fontsize=20)
+        plt.ylabel('Ratio', fontsize=20)
+        plt.xticks(fontsize=16)  # np.array([.97, 1, 1.03]),
+        plt.yticks(np.array([0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99, 1]), fontsize=16)
+        # plt.ylim(bottom=0.96, top=0.99)
+        # plt.gca().axes.get_xaxis().set_ticks([])
+        # if divideBy == 9:
+        #     plt.yticks(np.arange(0.9995, 1.0001, 0.0001))
+        #     plt.ylim(bottom=0.9994)
+        # elif divideBy == 7:
+        #     plt.yticks(np.arange(0.9975, 1.0001, 0.0005))
+        # plt.ylim(bottom=0.9994)
+        # plt.title('Ratio of Worst LME Reward to OPT Reward', fontsize=13)
+        # title = 'ratiosGroupedFor' + str(divideBy) + '.eps'
+        plt.legend(loc="lower right", prop={'size': 16})  # , bbox_to_anchor=(1, 1))
+
+        plt.savefig('acrossMus.eps', format='eps', bbox_inches='tight')
+        plt.show()
+        plt.cla()
