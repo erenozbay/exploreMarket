@@ -241,7 +241,7 @@ def succfailLinear(state, T, workerarriveprob, jobarriveprob, wsp, bigK, rewardL
                         price = (bigK - min(bigK, queue[i])) / bigK - \
                                 wsp * transition[i][i + 1] * (bigK - min(bigK, queue[i + 1])) / bigK
                     else:
-                        price = (bigK - min(bigK, queue[i])) / bigK * (1 - wsp)
+                        price = (bigK - min(bigK, queue[i])) / bigK * (1 - wsp) * transition[i][i]
                 else:
                     exit("Choose either optimal or local pricing algorithm.")
                 if (maxval <= (rewardList[i] - C * price)) & (queue[i] > 0):
@@ -667,7 +667,7 @@ def succfailSim_alt(state, T, workerarriveprob, jobarriveprob, wsp, bigK, reward
 
 
 def simModulePriorsChange(state, sims):
-    T = 250000 # time
+    T = 25000 # time
     wap = 0.5
     wsp = 0.95
     alphas = [(9 - i) / (1 * 10) for i in range(9)]
@@ -675,8 +675,8 @@ def simModulePriorsChange(state, sims):
     simstart, simend = 0, 0
     start = time()
     for ss in range(len(alphas)):
-        jobarriveprob = 10 * alphas[ss] + 0.1
-        print("jobarriveprob", jobarriveprob)
+        jobarriveprob = 10 * alphas[ss] #+ 0.1
+        print("!!!!!jobarriveprob", jobarriveprob, "!!!!!!!")
         # jobarriveprob = wap / (1 - wsp) * alphas[ss]  # alphas[len(alphas) - ss - 1]
         # jobarriveprob = jobarriveprob if jobarriveprob <= 1 else 1
 
@@ -710,19 +710,21 @@ def simModulePriorsChange(state, sims):
                 if sum(transition[str(i) + "_" + str(j)].values()) != 1:
                     exit("problem in (" + str(i) + ", " + str(j) + ")")
             # call the optimization model first
-            _, _, objval_opt, jobcon = succfailOpt(state, wsp, wap, jobarriveprob, np.zeros((state, state)), False,
+            SolnX, _, objval_opt, jobcon = succfailOpt(state, wsp, wap, jobarriveprob, np.zeros((state, state)), False,
                                                    objective, transition, np.ones((state, state)) * 10, printResults=False)
             # succfailOptPriors(state, wsp, wap, jobarriveprob, objective)  # this was used right above
             # if fixed point is doable, i.e., job constraint is fully utilized, go on to the fixed point
             FP_objval = 0
             simsRewAvg = 0
-            print("The optimal value is", objval_opt, "and the unused portion of mu", jobarriveprob - jobcon)
+            print("The optimal value is", objval_opt, "and the unused portion of mu", jobarriveprob - jobcon,
+                  "\n opt solution", SolnX)
             if jobcon - jobarriveprob > -1e-7:
                 FPTree, FP_objval, solnchange, both = succfailFixedPoint(state, wsp, wap, jobarriveprob,
                                                                          objective, transition, bw="worst",
                                                                          printResults=False)
+                print("LME solution", FPTree)
                 print("LME search found a new solution", solnchange, "times and in the first try", both + 1,
-                      "LME objs give a solution")
+                      "LME objs give a solution.\nLME/OPT ratio", FP_objval / objval_opt)
                 if FP_objval > 0:
                     # then the simulation
                     for sss in range(sims):
@@ -752,12 +754,12 @@ def simModulePriorsChange(state, sims):
             print(keepMid)
             ind += 1
         filename = 'Prior_alpha' + str(ss) + 'mu' + str(jobarriveprob) + '_newLME.csv'
-        np.savetxt(filename, keepMid, delimiter=",")
+        # np.savetxt(filename, keepMid, delimiter=",")
         keepResults[ss][0] = statistics.mean(keepMid[:, 0])
         keepResults[ss][1] = statistics.mean(keepMid[:, 1])
         keepResults[ss][2] = statistics.mean(keepMid[:, 2])
         keepResults[ss][3] = jobarriveprob
         print("It has been ", time() - start, " seconds so far, from the start that is")
-        np.savetxt("binaryBetaModel_5priors.csv", keepResults, delimiter=",")
+        # np.savetxt("binaryBetaModel_5priors.csv", keepResults, delimiter=",")
         print()
         print(keepResults)

@@ -127,6 +127,120 @@ def plotRatios_likeCDF():  # for CDF-like plots, use vals and edges
     plt.cla()
 
 
+def plot_likeCDF():  # for CDF-like plots, use vals and edges
+    # divideBy = betaVal
+    filename = 'taskrabbit/Taskrabbit-dataset_raw.csv'
+    data = pd.read_csv(filename)
+    # AverageRating   Number_of_reviews   Number_of_jobs   Price   Sex
+    avgRating = data['AverageRating'].to_numpy()
+    # print(avgRating)
+    NOR = data['Number_of_reviews'].to_numpy()
+    logNOR = np.log10(NOR + 1)
+    # print(logNOR)
+    NOJ = data['Number_of_jobs'].to_numpy()
+    # print(NOJ)
+    price = data['Price'].to_numpy()
+    print(price)
+    unique, counts = np.unique(price, return_counts=True)
+    print(unique)
+    print(counts)
+    print(np.cumsum(counts))
+
+
+
+
+    title = 'taskrabbit_prices.eps'
+    xlab = 'Price' #'Price Deviation (%)' #
+    ylab = 'Cumulative Count'
+    # generate bins and bin edges
+    vals, edges = np.histogram(price, bins=20)
+    # cumsum and normalize to get cdf rather than pdf
+    vals = np.cumsum(vals)
+    vals = vals / vals[-1]
+    # convert bin edges to bin centers
+    edges = (edges[:-1] + edges[1:]) / 2
+    print(edges)
+    print(vals)
+    plt.figure(figsize=(8, 6), dpi=100)
+    plt.grid(lw=0.25)
+    lineWidth = 1
+    # plt.plot(edges, vals, color='b', linewidth=lineWidth, marker='o', markersize=6)
+    # plt.axvline(x=np.mean(price), linestyle='dashed', color='r', linewidth=lineWidth * 0.8)
+    # plt.gca().xaxis.set_major_formatter(mtick.PercentFormatter(xmax=1.0))
+
+    # plt.scatter(x=logNOR, y=price, color='blue', marker='o', s=64) #, label=r"$\log$(number of reviews)")
+    # plt.axline(xy1=(0, 35.59), slope=12.43, color ='red', linestyle='--', linewidth=2.5)
+    # plt.legend(loc="upper right")
+    # plt.xticks(fontsize=14)  # np.array([.97, 1, 1.03]),
+    # plt.yticks(fontsize=14)
+    # plt.xlabel(r"$\log$(number of reviews)", fontsize=16)
+    # plt.ylabel('Price', fontsize=16)
+    # plt.savefig("log(NOR)_vs_priceRegression.eps", format='eps', bbox_inches='tight')
+    # plt.show()
+    # plt.cla()
+    # exit()
+
+    # countsExcluded = counts[counts > 1]
+    # unique = unique[counts > 1]
+    # counts = countsExcluded
+    # cumulativeSum = np.cumsum(counts)
+    # plt.plot(unique.astype('str'), cumulativeSum, color='b', marker='o', markersize=4)
+    # plt.xticks(fontsize=3)  #np.array([.97, 1, 1.03]),
+    # plt.yticks(fontsize=7)
+    # cumulativeSum = cumulativeSum[counts > 1]
+    # set_yticks = cumulativeSum
+    # plt.yticks(np.append(set_yticks, 120))
+    # plt.xlabel(xlab, fontsize=16)
+    # plt.ylabel(ylab, fontsize=16)
+
+
+    # plt.savefig(title, format='eps', bbox_inches='tight')
+    # plt.show()
+    # plt.cla()
+
+
+    # plt.bar(unique.astype('str'), counts, color='b')
+    # plt.show()
+    # plt.cla()
+
+    freq = counts / sum(counts)
+    print(freq)
+    cumFreq = np.cumsum(freq)
+    print(cumFreq)
+    # plt.step(y=cumFreq, x=unique)
+    # unique = np.log10(unique)
+    plt.plot(np.append(unique[0], unique), np.append(0, cumFreq), drawstyle='steps', linewidth=2)
+    plt.xticks(fontsize=14)  # np.array([.97, 1, 1.03]),
+    plt.yticks(fontsize=14)
+    plt.xlabel("Price", fontsize=16)  # r"$\log$(Price)"
+    plt.savefig("cumulativePrices_step_cdf.eps", format='eps', bbox_inches='tight')
+    plt.show()
+    exit()
+
+    plt.xticks(fontsize=14)  # np.array([.97, 1, 1.03]),
+    plt.yticks(fontsize=14)
+    plt.xlabel('Price', fontsize=16) # r"$\log$(Price)"
+    plt.ylabel('Count', fontsize=16)
+    rngStart = 1
+    rngEnd = counts[0] + 1
+    # unique = np.log10(unique)
+    # plt.gca().set_xscale('log')
+    for i in range(44):
+        if i % 2 == 0:
+            plt.scatter(x=np.repeat(unique[i], counts[i]) , y=np.arange(rngStart, rngEnd), color='blue', marker='.',
+                        s=32)
+        else:
+            plt.scatter(x=np.repeat(unique[i], counts[i]), y=np.arange(rngStart, rngEnd), color='red', marker='v',
+                        s=32)
+        rngStart = rngEnd
+        rngEnd = rngEnd + counts[i + 1] if i < 43 else 121
+
+
+
+    plt.savefig("cumulativePrices.eps", format='eps', bbox_inches='tight')
+    plt.show()
+    plt.cla()
+
 
 def plotRatios(betaVal):
     divideBy = betaVal
@@ -281,6 +395,7 @@ def plotRatios_betaModel(across):
         plt.ylabel('Ratio', fontsize=20)
         plt.xticks(fontsize=16)  # np.array([.97, 1, 1.03]),
         plt.yticks(np.array([0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99, 1]), fontsize=16)
+        plt.ylim(bottom=0.93, top=1.005)
         # plt.ylim(bottom=0.96, top=0.99)
         # plt.gca().axes.get_xaxis().set_ticks([])
         # if divideBy == 9:
@@ -294,5 +409,5 @@ def plotRatios_betaModel(across):
         plt.legend(loc="lower right", prop={'size': 16})  # , bbox_to_anchor=(1, 1))
 
         plt.savefig('acrossMus.eps', format='eps', bbox_inches='tight')
-        plt.show()
+        # plt.show()
         plt.cla()

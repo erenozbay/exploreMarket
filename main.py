@@ -1515,7 +1515,7 @@ def denemeSimulation():
     # print('Empirical reward is ', empRewardTree / timeHorz, ' and the reward due to the fixed point is ', fp_obj_val)
 
 
-def denemeSimulationLinear():
+def denemeSimulationLinear(TT, optimalOrLocal):
     start = time()
     numState = 3
     workerArriveProbability = 1
@@ -1528,7 +1528,7 @@ def denemeSimulationLinear():
         exit("Pick lambda as either 1 or 1/2.")
     workerStayProbability = 0.5
     jobArriveProbability = 1
-    eps = 0.8  # 0.05 or 0.8
+    eps = 0.6  # 0.05 or 0.8
 
     objVals = np.zeros(numState)
     initQueues = np.zeros(numState)
@@ -1542,92 +1542,175 @@ def denemeSimulationLinear():
     transition[2][2] = 1
     print("State transitions \n", transition)
 
-    TT = int(1e6)
+
     recordEvery = 10
-    optimalOrLocal = 'local'  # 'optimal' or 'local'
     bigK = 1000
+    if optimalOrLocal == 'local' or optimalOrLocal == 'both':
+        track_mass, total_reward, track_queues = succfailLinear(numState, TT, workerArriveProbability, jobArriveProbability,
+                                                                workerStayProbability, bigK, objVals, transition, initQueues,
+                                                                2 * objVals[numState - 1], 80, recordEvery, 'local')
 
-    track_mass, total_reward, track_queues = succfailLinear(numState, TT, workerArriveProbability, jobArriveProbability,
-                                                            workerStayProbability, bigK, objVals, transition, initQueues,
-                                                            2 * objVals[numState - 1], 80, recordEvery, optimalOrLocal)
+        df_massTree = pd.DataFrame(track_mass, columns=['Time'.split() + ['State(' + str(i) + ')'
+                                                                          for i in range(numState)]], dtype=float)
 
-    df_massTree = pd.DataFrame(track_mass, columns=['Time'.split() + ['State(' + str(i) + ')'
-                                                                      for i in range(numState)]], dtype=float)
+        # df_massTree.to_csv("massesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+        #                    "Pricing.csv", index=False)
+        # print(df_massTree['Time'])
+        if TT <= 5e7:
+            plt.figure(figsize=(7, 5), dpi=100)
+            # plt.rc('axes', axisbelow=True)
+            plt.grid(lw=1.1)
+            plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(0)'].to_numpy(), color='green', label='State 0')
+            plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(1)'].to_numpy(), color='red', label='State 1')
+            plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(2)'].to_numpy(), color='blue', label='State 2')
+            plt.ylabel('Match Rate')
+            plt.xlabel('Time')
+            plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+            # plt.tight_layout()
+            plt.title('Local Pricing')
+            # plt.savefig("massesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+            #             "Pricing.eps", format='eps', bbox_inches='tight')
+            plt.show()
+            # plt.cla()
 
-    df_massTree.to_csv("massesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
-                       "Pricing.csv", index=False)
-    # print(df_massTree['Time'])
-    if TT <= 5e7:
-        plt.figure(figsize=(7, 5), dpi=100)
-        # plt.rc('axes', axisbelow=True)
-        plt.grid(lw=1.1)
-        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(0)'].to_numpy(), color='green', label='State 0')
-        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(1)'].to_numpy(), color='red', label='State 1')
-        plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(2)'].to_numpy(), color='blue', label='State 2')
-        plt.ylabel('Match Rate')
-        plt.xlabel('Time')
-        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
-        plt.tight_layout()
-        plt.savefig("massesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
-                    "Pricing.eps", format='eps', bbox_inches='tight')
-        # plt.show()
-        plt.cla()
+        pd.DataFrame(track_queues,
+                     columns=['Time'.split() + ['State(' + str(i) + ')' for i in range(numState)]],
+                     dtype=float).to_csv("queuesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+                                         "Pricing.csv", index=False)
 
-    pd.DataFrame(track_queues,
-                 columns=['Time'.split() + ['State(' + str(i) + ')' for i in range(numState)]],
-                 dtype=float).to_csv("queuesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
-                                     "Pricing.csv", index=False)
+        df_qsPrice = pd.DataFrame(track_queues, columns=['Time'.split() + ['State(' + str(i) + ')'
+                                                                          for i in range(numState)]], dtype=float)
+        df_qsRewAdjPrice = pd.DataFrame(track_queues, columns=['Time'.split() + ['State(' + str(i) + ')'
+                                                                          for i in range(numState)]], dtype=float)
+        df_qsPriceLocal = deepcopy(df_qsPrice)
+        df_qsRewAdjPriceLocal = deepcopy(df_qsRewAdjPrice)
 
-    df_qsPrice = pd.DataFrame(track_queues, columns=['Time'.split() + ['State(' + str(i) + ')'
-                                                                      for i in range(numState)]], dtype=float)
-    df_qsRewAdjPrice = pd.DataFrame(track_queues, columns=['Time'.split() + ['State(' + str(i) + ')'
-                                                                      for i in range(numState)]], dtype=float)
+    if optimalOrLocal == 'optimal' or optimalOrLocal == 'both':
+        track_mass, total_reward, track_queues = succfailLinear(numState, TT, workerArriveProbability, jobArriveProbability,
+                                                                workerStayProbability, bigK, objVals, transition,
+                                                                initQueues,
+                                                                2 * objVals[numState - 1], 80, recordEvery, 'optimal')
+
+        df_massTree = pd.DataFrame(track_mass, columns=['Time'.split() + ['State(' + str(i) + ')'
+                                                                          for i in range(numState)]], dtype=float)
+
+        # df_massTree.to_csv("massesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+        #                    "Pricing.csv", index=False)
+        # print(df_massTree['Time'])
+        if TT <= 5e7:
+            plt.figure(figsize=(7, 5), dpi=100)
+            # plt.rc('axes', axisbelow=True)
+            plt.grid(lw=1.1)
+            plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(0)'].to_numpy(), color='green', label='State 0')
+            plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(1)'].to_numpy(), color='red', label='State 1')
+            plt.plot(df_massTree['Time'].to_numpy(), df_massTree['State(2)'].to_numpy(), color='blue', label='State 2')
+            plt.ylabel('Match Rate')
+            plt.xlabel('Time')
+            plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+            # plt.tight_layout()
+            plt.title('Optimal Pricing')
+            # plt.savefig("massesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+            #             "Pricing.eps", format='eps', bbox_inches='tight')
+            plt.show()
+            # plt.cla()
+
+        pd.DataFrame(track_queues,
+                     columns=['Time'.split() + ['State(' + str(i) + ')' for i in range(numState)]],
+                     dtype=float).to_csv("queuesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+                                         "Pricing.csv", index=False)
+
+        df_qsPrice = pd.DataFrame(track_queues, columns=['Time'.split() + ['State(' + str(i) + ')'
+                                                                           for i in range(numState)]], dtype=float)
+        df_qsRewAdjPrice = pd.DataFrame(track_queues, columns=['Time'.split() + ['State(' + str(i) + ')'
+                                                                                 for i in range(numState)]], dtype=float)
+        df_qsPriceOpt = deepcopy(df_qsPrice)
+        df_qsRewAdjPriceOpt = deepcopy(df_qsRewAdjPrice)
+
     for i in range(numState):
         namep = 'State(' + str(i) + ')'
-        if optimalOrLocal == 'local':
+        if optimalOrLocal == 'local' or optimalOrLocal == 'both':
             # print("Doing local prices.")
-            df_qsPrice[namep] = df_qsPrice.apply(lambda x: 2 * objVals[numState - 1] *
+            df_qsPriceLocal[namep] = df_qsPriceLocal.apply(lambda x: 2 * objVals[numState - 1] *
                                                         (bigK - min(bigK, x[namep])) / bigK, axis=1)
-            df_qsRewAdjPrice[namep] = df_qsRewAdjPrice.apply(lambda x: objVals[i] - 2 * objVals[numState - 1] *
+            df_qsRewAdjPriceLocal[namep] = df_qsRewAdjPriceLocal.apply(lambda x: objVals[i] - 2 * objVals[numState - 1] *
                                                                        (bigK - min(bigK, x[namep])) / bigK, axis=1)
-        elif optimalOrLocal == 'optimal':
+        if optimalOrLocal == 'optimal' or optimalOrLocal == 'both':
             # optimal price
             # print("Doing optimal prices.", end=" ")
             name_feed = 'State(' + str(i + 1) + ')'
             if i < numState - 1:
                 # print("For " + namep + " to " + name_feed)
-                df_qsPrice[namep] = df_qsPrice.apply(
+                df_qsPriceOpt[namep] = df_qsPriceOpt.apply(
                     lambda x: 2 * objVals[numState - 1] * ((bigK - min(bigK, x[namep])) / bigK -
                     workerStayProbability * transition[i][i + 1] * (bigK - min(bigK, x[name_feed])) / bigK), axis=1)
-                df_qsRewAdjPrice[namep] = df_qsRewAdjPrice.apply(
+                df_qsRewAdjPriceOpt[namep] = df_qsRewAdjPriceOpt.apply(
                     lambda x: objVals[i] - 2 * objVals[numState - 1] * ((bigK - min(bigK, x[namep])) / bigK -
                     workerStayProbability * transition[i][i + 1] * (bigK - min(bigK, x[name_feed])) / bigK), axis=1)
             else:
                 # print()
-                df_qsPrice[namep] = df_qsPrice.apply(lambda x: 2 * objVals[numState - 1] *
+                df_qsPriceOpt[namep] = df_qsPriceOpt.apply(lambda x: 2 * objVals[numState - 1] *
                                                                (bigK - min(bigK, x[namep])) / bigK
                                                                * (1 - workerStayProbability), axis=1)
-                df_qsRewAdjPrice[namep] = df_qsRewAdjPrice.apply(lambda x: objVals[i] - 2 * objVals[numState - 1] *
+                df_qsRewAdjPriceOpt[namep] = df_qsRewAdjPriceOpt.apply(lambda x: objVals[i] - 2 * objVals[numState - 1] *
                                                                            (bigK - min(bigK, x[namep])) / bigK
                                                                            * (1 - workerStayProbability), axis=1)
 
-    df_qsPrice.to_csv("pricesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
-                      "Pricing.csv", index=False)
-    if TT <= 5e7:
+    # df_qsPrice.to_csv("pricesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+    #                   "Pricing.csv", index=False)
+    if TT <= 5e7 and (optimalOrLocal == 'local' or optimalOrLocal == 'both'):
         plt.figure(figsize=(7, 5), dpi=100)
         plt.rc('axes', axisbelow=True)
         plt.grid(lw=1.1)
-        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(0)'].to_numpy(), color='green', label='State 0')
-        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(1)'].to_numpy(), color='red', label='State 1')
-        plt.plot(df_qsPrice['Time'].to_numpy(), df_qsPrice['State(2)'].to_numpy(), color='blue', label='State 2')
+        plt.plot(df_qsPriceLocal['Time'].to_numpy(), df_qsPriceLocal['State(0)'].to_numpy(), color='green',
+                 label='State 0')
+        plt.plot(df_qsPriceLocal['Time'].to_numpy(), df_qsPriceLocal['State(1)'].to_numpy(), color='red',
+                 label='State 1')
+        plt.plot(df_qsPriceLocal['Time'].to_numpy(), df_qsPriceLocal['State(2)'].to_numpy(), color='blue',
+                 label='State 2')
         plt.ylabel('Price')
         plt.xlabel('Time')
         plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
-        plt.tight_layout()
-        plt.savefig("pricesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
-                    "Pricing.eps", format='eps', bbox_inches='tight')
-        plt.cla()
+        # plt.tight_layout()
+        # plt.savefig("pricesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+        #             "Pricing.eps", format='eps', bbox_inches='tight')
+        # plt.cla()
+        plt.title('Local Pricing')
+        print(df_qsPriceLocal)
+        plt.show()
+
+        # plt.figure(figsize=(7, 5), dpi=100)
+        # plt.rc('axes', axisbelow=True)
+        # plt.grid(lw=1.1)
+        # plt.plot(df_qsRewAdjPriceLocal['Time'].to_numpy(), df_qsRewAdjPriceLocal['State(0)'].to_numpy(), color='green', label='State 0')
+        # plt.plot(df_qsRewAdjPriceLocal['Time'].to_numpy(), df_qsRewAdjPriceLocal['State(1)'].to_numpy(), color='red', label='State 1')
+        # plt.plot(df_qsRewAdjPriceLocal['Time'].to_numpy(), df_qsRewAdjPriceLocal['State(2)'].to_numpy(), color='blue', label='State 2')
+        # plt.ylabel('Price-Adjusted Reward')
+        # plt.xlabel('Time')
+        # plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        # # plt.tight_layout()
+        # # plt.savefig("pricesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+        # #             "Pricing.eps", format='eps', bbox_inches='tight')
+        # # plt.cla()
+        # plt.title('Local Pricing')
         # plt.show()
+    if TT <= 5e7 and (optimalOrLocal == 'optimal' or optimalOrLocal == 'both'):
+        plt.figure(figsize=(7, 5), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid(lw=1.1)
+        plt.plot(df_qsPriceOpt['Time'].to_numpy(), df_qsPriceOpt['State(0)'].to_numpy(), color='green', label='State 0')
+        plt.plot(df_qsPriceOpt['Time'].to_numpy(), df_qsPriceOpt['State(1)'].to_numpy(), color='red', label='State 1')
+        plt.plot(df_qsPriceOpt['Time'].to_numpy(), df_qsPriceOpt['State(2)'].to_numpy(), color='blue', label='State 2')
+        plt.ylabel('Effective Price') # -Adjusted Reward
+        plt.xlabel('Time')
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        # plt.tight_layout()
+        # plt.savefig("pricesOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+        #             "Pricing.eps", format='eps', bbox_inches='tight')
+        # plt.cla()
+        plt.title('Optimal Pricing')
+        print(df_qsPriceOpt)
+        print(df_qsRewAdjPriceOpt)
+        plt.show()
 
         # plt.figure(figsize=(7, 5), dpi=100)
         # plt.rc('axes', axisbelow=True)
@@ -1642,25 +1725,25 @@ def denemeSimulationLinear():
         #             "Pricing.eps", format='eps', bbox_inches='tight')
         # plt.cla()
 
-    df_qsRewAdjPrice.to_csv("pricesRewAdjOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
-                            "Pricing.csv", index=False)
-    if TT <= 5e7:
-        plt.figure(figsize=(7, 5), dpi=100)
-        plt.rc('axes', axisbelow=True)
-        plt.grid(lw=1.1)
-        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(0)'].to_numpy(),
-                 color='green', label='State 0')
-        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(),
-                 color='red', label='State 1')
-        plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(2)'].to_numpy(),
-                 color='blue', label='State 2')
-        plt.ylabel('Price-Adjusted Reward')
-        plt.xlabel('Time')
-        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
-        plt.tight_layout()
-        plt.savefig("pricesRewAdjOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
-                    "Pricing.eps", format='eps', bbox_inches='tight')
-        plt.cla()
+    # df_qsRewAdjPrice.to_csv("pricesRewAdjOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+    #                         "Pricing.csv", index=False)
+    # if TT <= 5e7:
+    #     plt.figure(figsize=(7, 5), dpi=100)
+    #     plt.rc('axes', axisbelow=True)
+    #     plt.grid(lw=1.1)
+    #     plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(0)'].to_numpy(),
+    #              color='green', label='State 0')
+    #     plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(1)'].to_numpy(),
+    #              color='red', label='State 1')
+    #     plt.plot(df_qsRewAdjPrice['Time'].to_numpy(), df_qsRewAdjPrice['State(2)'].to_numpy(),
+    #              color='blue', label='State 2')
+    #     plt.ylabel('Price-Adjusted Reward')
+    #     plt.xlabel('Time')
+    #     plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+    #     plt.tight_layout()
+        # plt.savefig("pricesRewAdjOverTimeLinear_lambda" + str(lambdaVal) + "_" + optimalOrLocal +
+        #             "Pricing.eps", format='eps', bbox_inches='tight')
+        # plt.cla()
         # plt.show()
 
         # plt.figure(figsize=(7, 5), dpi=100)
@@ -1683,16 +1766,19 @@ def denemeSimulationLinear():
 
 if __name__ == '__main__':
 
+    plot_likeCDF()
+    exit()
+
     # plotRatios_betaModel("mu")
     # exit()
 
-    # simModulePriorsChange(10, 1)
+    # simModulePriorsChange(5, 1)
     # exit()
 
 
     # Eren used plotRatios_likeCDF and simModuleLinear on 5.24.2023 to create the ML figures in the thesis
-    plotRatios_likeCDF()
-    exit()
+    # plotRatios_likeCDF()
+    # exit()
     # simModuleLinear(5, 200)#, 0.2017818274585373 , 0.5293921710756335, 0.8660037919295616)
     # exit()
 
@@ -1702,8 +1788,9 @@ if __name__ == '__main__':
     # plotRatiosMu1Lambda(1)
     # exit()
 
-    # denemeSimulationLinear()
+    denemeSimulationLinear(TT=int(2e5), optimalOrLocal='both')  # 'optimal' or 'local' or 'both'
     # denemeSimulation()
+    exit()
 
     # (a,b): if total transitions is x, then prior at least needs to be sth like (1, x-1)
     # (a,b,c): if total transitions is x, then prior at least needs to be sth like (1, 1, 3x-2),
