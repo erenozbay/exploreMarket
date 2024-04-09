@@ -11,7 +11,7 @@ def simulationForLastMatch(state, T, workerarriveprob, jobarriveprob, wsp, bigK,
     This is the simulator for three pricing options:
         (1) Local queue length based
         (2) Optimal queue length based
-        (3) Time since last matched based
+        (3) Time since the queue was last emptied based
 
     See below (after the function) for details.
     Comments are left before/after corresponding lines
@@ -20,9 +20,10 @@ def simulationForLastMatch(state, T, workerarriveprob, jobarriveprob, wsp, bigK,
         numpy, pandas, datetime, itertools and matplotlib.pyplot
     """
 
-    " price calculation for the time since last matched "
-    def price_last_match(since_last_match_arr, subtract_from, _epsilon):
-        return max(subtract_from - _epsilon * since_last_match_arr, 0)
+    " price calculation for the time since last emptied "
+
+    def price_last_match(since_last_emptied, subtract_from, _epsilon, reward_cap=np.inf):
+        return max(min(subtract_from - _epsilon * since_last_emptied, reward_cap), 0)
 
     " initialize all variables used for recording and tracking results "
     counter_conv, total_reward_tmp, counterr = 0, 0, 0
@@ -31,7 +32,7 @@ def simulationForLastMatch(state, T, workerarriveprob, jobarriveprob, wsp, bigK,
                                           np.zeros((int(T / recordEvery), int((state + 1) * state * 0.5) + 1)))
 
     " 'since_last_match' keeps track of the time since some worker from a state has received a match "
-    since_last_match = np.zeros((state, state))
+    # since_last_match = np.zeros((state, state))
 
     track_price_since_last_match = np.zeros((int(T / recordEvery), int((state + 1) * state * 0.5) + 1))
     " number of columns is 1 more than needed because the first column is the 'effective' time "
@@ -48,11 +49,18 @@ def simulationForLastMatch(state, T, workerarriveprob, jobarriveprob, wsp, bigK,
     just_one, multiple, assignments_this_time = 0, 0, 0
     once_pricing = True
 
+    " last time queue was empty "
+    last_empty = np.zeros((state, state))
+    since_last_empty, since_last_empty_tmp = np.zeros((state, state)), np.ones((state, state))
+    last_match_price = np.zeros((state, state))
+    eff_time = 0
+
     for t in range(T):
         queue[0][0] += workerarrival[t]  # arrivals to the initial state
         activeJobs = jobarrival[t]
 
         while (activeJobs >= 1) and (queue.sum() > 0):
+            eff_time = t  # += 1  #
             activeJobs -= 1
 
             """
@@ -75,8 +83,10 @@ def simulationForLastMatch(state, T, workerarriveprob, jobarriveprob, wsp, bigK,
 
                 " calculate the price of state (i, j) depending on the pricing strategy "
                 if pricing == 'lastMatch':
-                    price = price_last_match(since_last_match_arr=since_last_match[i][j], subtract_from=C,
+                    price = price_last_match(since_last_emptied=since_last_empty[i][j], subtract_from=C,
                                              _epsilon=_epsilon)
+                    if since_last_empty_tmp[i][j] == 0:
+                        price = last_match_price[i][j]
 
                     if once_pricing:
                         print("Pricing is time since last match based.")
@@ -143,29 +153,39 @@ def simulationForLastMatch(state, T, workerarriveprob, jobarriveprob, wsp, bigK,
                 pos_j = eligible_states[0][1]
                 just_one += 1
 
-            """
-            Increment the 'since last matched time' for every state.
-            If there was a state which was picked above, then its value will be initialized/updated below.
-            """
-            for (i, j) in ((i, j) for (i, j) in product(range(state), range(state))
-                           if i + j <= (state - 1)):
-                since_last_match[i][j] += 1
-
             " if there is a state that is picked to receive a match, proceed "
             if len(eligible_states) > 0:
-                if (queue < 0).any():
-                    print("Oops, a non-existent worker left. Exiting...")
-                    break
+
                 queue[pos_i][pos_j] -= 1
                 track_assign[pos_i][pos_j] += 1
 
-                """
-                initialize the time since last matched to 0 for state pos_i, pos_j
-                IF INITIALIZE TO ZERO, THEN MATCH RATES AND PRICES SUCK
-                IF SUBTRACT ONE, THEN PRICES SUCK, MATCH RATES match THE LME
-                """
-                since_last_match[pos_i][pos_j] = 0
-                # since_last_match[pos_i][pos_j] -= 1
+                if (queue < 0).any():
+                    print("Oops, a non-existent worker left. Exiting...")
+                    break
+
+                # epsilon_up = False
+                " Last match price for the selected state "
+                if (since_last_empty_tmp[pos_i][pos_j] == 0) or (queue[pos_i][pos_j] == 0):
+                    last_match_price[pos_i][pos_j] = last_match_price[pos_i][pos_j] + _epsilon * 10
+                # elif queue[pos_i][pos_j] == 0:
+                #     last_match_price[pos_i][pos_j] = last_match_price[pos_i][pos_j] + _epsilon * 10
+                else:
+                    last_match_price[pos_i][pos_j] = price_last_match(
+                        since_last_emptied=since_last_empty[pos_i][pos_j],
+                        subtract_from=C,
+                        _epsilon=_epsilon
+                    )
+
+                if queue[pos_i][pos_j] == 0:
+                    last_empty[pos_i][pos_j] = eff_time
+                    " Price when a state hits zero queue length shouldn't skyrocket "
+                    " Let it be (2 * price) or (price + epsilon) "
+                    since_last_empty_tmp[pos_i][pos_j] = 0
+                    # if not epsilon_up:
+                    #     last_match_price[pos_i][pos_j] = last_match_price[pos_i][pos_j] + _epsilon * 10
+                # else:
+                #     " if there is match, price may remain the same "
+                #     last_empty[pos_i][pos_j] += 1
 
                 " sample the reward "
                 reward = np.random.binomial(1, np.random.beta(pos_i + 1, pos_j + 1))
@@ -188,6 +208,15 @@ def simulationForLastMatch(state, T, workerarriveprob, jobarriveprob, wsp, bigK,
                 " count the total assignments throughout the time horizon for tracking purposes "
                 assignments_this_time += 1
 
+            for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
+                if queue[i][j] == 0:
+                    last_empty[i][j] += 1  # if the queue is at zero and have been for some time
+                                                 # its price shouldn't decrease
+                since_last_empty[i][j] = eff_time - last_empty[i][j]
+                if queue[i][j] > 0:
+                    since_last_empty_tmp[i][j] = eff_time - last_empty[i][j]
+
+
         " at most bigK many workers allowed in each queue at any time "
         for (i, j) in product(range(state), range(state)):
             queue[i][j] = min(queue[i][j], bigK)
@@ -202,9 +231,12 @@ def simulationForLastMatch(state, T, workerarriveprob, jobarriveprob, wsp, bigK,
             for (i, j) in ((i, j) for (i, j) in product(range(state), range(state)) if i + j <= (state - 1)):
                 track_mass_tmp[counter_conv][index + 1] = track_assign[i][j] / (t + 1)
                 track_queues_tmp[counter_conv][index + 1] = queue[i][j]
-                track_price_since_last_match[counter_conv][index + 1] = (
-                    price_last_match(since_last_match_arr=since_last_match[i][j], subtract_from=C,
-                                     _epsilon=epsilon))
+
+                track_price_since_last_match[counter_conv][index + 1] = last_match_price[i][j]
+
+                # track_price_since_last_match[counter_conv][index + 1] = (
+                #     price_last_match(since_last_emptied=since_last_empty[i][j], subtract_from=C,
+                #                      _epsilon=epsilon))
                 index += 1
 
             counter_conv += 1
@@ -302,16 +334,15 @@ For 'local' and 'optimal' use
         pricing_strategy = 'lastMatch'  
 """
 pricing_strategy = 'lastMatch'
-epsilon = 0.01
-price_multiplier = 2 * objVals[numState - 1][0]
+epsilon = 0.001
+price_multiplier = 1 * objVals[numState - 1][0]  # objVals[numState - 1][0] - objVals[0][numState - 1]  # 1
 K = 1000
 
 """ 
 The time horizon
         A time horizon of 5e6 (5*10^6) takes 130 seconds for local
                                              150 seconds for optimal 
-                                             110 seconds for lastMatch (if time since last matched initialized to zero)
-                                             130 seconds for lastMatch (if time since last matched reduced by one)
+                                             160 seconds for lastMatch
 Use
     time_horizon = int(5e6)
 """
@@ -434,6 +465,7 @@ plt.close()
 """
 Time since last matched
 """
+
 plt.figure(figsize=(7, 5), dpi=100)
 plt.rc('axes', axisbelow=True)
 plt.grid(lw=1.1)
@@ -450,4 +482,30 @@ plt.xlabel('Time')
 plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
 plt.tight_layout()
 plt.savefig("LastMatchBasedPrices.eps", format='eps', bbox_inches='tight')
+plt.close()
 # plt.show()
+
+if pricing_strategy == 'lastMatch':
+
+    pricess = ['Price(0,0)', 'Price(0,1)', 'Price(0,2)', 'Price(1,0)', 'Price(1,1)', 'Price(2,0)']
+    labelss = ['Price of 0', 'Price of 1', 'Price of 2', 'Price of 3', 'Price of 4', 'Price of 5']
+
+    for ind in range(len(pricess)):
+        plt.figure(figsize=(7, 5), dpi=100)
+        plt.rc('axes', axisbelow=True)
+        plt.grid(lw=1.1)
+
+        plt.plot(df_qsLastMatch['Time'].to_numpy(), df_qsLastMatch[pricess[ind]].to_numpy(), label=labelss[ind])
+
+        # plt.plot(df_qsLastMatch['Time'].to_numpy(),
+        #          np.cumsum(
+        #              df_qsLastMatch[pricess[ind]].to_numpy()
+        #          ) / np.arange(1, len(df_qsLastMatch[pricess[ind]].to_numpy()) + 1), label=labelss[ind])
+
+        plt.ylabel('Price')
+        plt.xlabel('Time')
+        plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+        plt.tight_layout()
+        plt.savefig("LastEmptiedBasedPrices_" + labelss[ind] + ".eps", format='eps', bbox_inches='tight')
+        plt.show()
+        plt.close()
